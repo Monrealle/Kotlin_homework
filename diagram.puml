@@ -1,0 +1,229 @@
+@startuml
+!theme plain
+
+' Player and ELO
+class Player {
+  + id: String
+  + name: String
+}
+
+class EloRating {
+  + player: Player
+  + rating: Int
+}
+note right of EloRating: Начальный рейтинг 1000
+
+interface EloRatingService {
+  + calculateRatings(winner: Player, loser: Player): Map<Player, EloChange>
+}
+
+class EloRatingServiceImpl {
+  - randomDelta(): Int
+}
+note right of EloRatingServiceImpl: delta: 25..33
+
+EloRatingServiceImpl ..|> EloRatingService
+EloRatingServiceImpl ..> EloChange
+EloRating --> Player
+
+class EloChange {
+  + player: Player
+  + oldRating: Int
+  + newRating: Int
+  + delta: Int
+}
+
+'  Game entities
+class Coordinate {
+  + row: Int
+  + col: Int
+}
+
+enum ShipType {
+  BATTLESHIP
+  CRUISER
+  DESTROYER
+  BOAT
+}
+note right of ShipType
+  BATTLESHIP = 4 клетки
+  CRUISER    = 3 клетки
+  DESTROYER  = 2 клетки
+  BOAT       = 1 клетка
+end note
+
+class Ship {
+  + type: ShipType
+  + segments: List<Coordinate>
+  + isSunk(hits: Set<Coordinate>): Boolean
+}
+
+enum CellState {
+  EMPTY
+  SHIP
+  HIT
+  MISS
+}
+
+class Board {
+  + owner: Player
+  + grid: Map<Coordinate, CellState>
+  + ships: List<Ship>
+  + receiveShot(coord: Coordinate): ShotResult
+  + allShipsSunk(): Boolean
+}
+note right of Board: isValidPlacement делегируется\nShipPlacementValidator
+
+enum ShotResult {
+  MISS
+  HIT
+  SUNK
+  WIN
+}
+
+class Move {
+  + turnNumber: Int
+  + player: Player
+  + coordinate: Coordinate
+  + result: ShotResult
+}
+
+'  Game session
+class Game {
+  + id: String
+  + player1: Player
+  + player2: Player
+  + board1: Board
+  + board2: Board
+  + currentTurn: Player
+  + status: GameStatus
+  + moves: List<Move>
+  + winner: Player?
+  + eloChanges: Map<Player, EloChange>?
+}
+
+enum GameStatus {
+  SETUP_P1
+  SETUP_P2
+  IN_PROGRESS
+  FINISHED
+}
+
+interface GameSession {
+  + startGame(p1: Player, p2: Player)
+  + placeShips(player: Player, ships: List<Ship>): ValidationResult
+  + makeMove(player: Player, coord: Coordinate): Move
+  + getGame(): Game
+}
+
+class GameSessionImpl {
+  - game: Game
+  - placementValidator: ShipPlacementValidator
+  - turnValidator: TurnValidator
+  - eloService: EloRatingService
+  - repository: GameRepository
+  - botStrategy: MoveStrategy?
+}
+
+'  Bot strategies
+interface MoveStrategy {
+  + nextMove(board: Board, history: List<Move>): Coordinate
+}
+
+class RandomBot {
+}
+RandomBot ..|> MoveStrategy
+
+class SmartBot {
+  - randomBot: RandomBot
+  - lastHit: Coordinate?
+  - huntMode: Boolean
+}
+note right of SmartBot
+  При попадании переходит в режим
+  «добивания»: обстреливает соседние
+  клетки. Иначе делегирует RandomBot.
+end note
+SmartBot ..|> MoveStrategy
+SmartBot --> RandomBot : delegates to
+
+'  Validators
+interface ShipPlacementValidator {
+  + validate(board: Board, ships: List<Ship>): ValidationResult
+}
+
+class ValidationResult {
+  + isValid: Boolean
+  + errors: List<String>
+}
+
+ShipPlacementValidator ..> ValidationResult
+
+interface TurnValidator {
+  + canFire(game: Game, player: Player, coord: Coordinate): Boolean
+}
+
+'  Repositories
+interface GameRepository {
+  + save(game: Game)
+  + findAll(): List<Game>
+  + findByPlayer(player: Player): List<Game>
+}
+
+interface PlayerRepository {
+  + save(player: Player)
+  + findById(id: String): Player?
+  + findByName(name: String): Player?
+}
+
+'  Statistics
+interface StatisticsService {
+  + getStats(player: Player): PlayerStats
+}
+
+class PlayerStats {
+  + gamesPlayed: Int
+  + wins: Int
+  + winRate: Double
+  + currentElo: Int
+}
+
+'  RELATIONSHIPS
+' Game
+Game "1" --> "2" Board
+Game "1" --> "1..4" Player : player1, player2,\ncurrentTurn, winner
+Game "1" --> "*" Move
+Game ..> EloChange
+
+' Board and Ship
+Board "1" --> "*" Ship
+Ship --> ShipType
+Ship "1" --> "1..4" Coordinate
+
+' Move
+Move --> Coordinate
+Move --> ShotResult
+Move --> Player
+
+' EloRating linked to Player
+EloRating --> Player
+
+' GameSessionImpl
+GameSessionImpl ..|> GameSession
+GameSessionImpl --> Game
+GameSessionImpl --> ShipPlacementValidator
+GameSessionImpl --> TurnValidator
+GameSessionImpl --> EloRatingService
+GameSessionImpl --> GameRepository
+GameSessionImpl --> MoveStrategy : uses if bot
+
+' Repositories
+GameRepository ..> Game
+PlayerRepository ..> Player
+
+' Statistics
+StatisticsService ..> GameRepository
+StatisticsService ..> PlayerRepository
+StatisticsService ..> PlayerStats
+
+@enduml
