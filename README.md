@@ -86,23 +86,47 @@
     Kotlin_homework
     ├── .github/
     │   └── workflows/
-    │       └── ci.yml                       - Конфигурация CI
+    │       └── ci.yml                     - Конфигурация CI (сборка, тесты)
     ├── gradle/
     │   └── wrapper/
-    │       ├── gradle-wrapper.jar           - Исполняемый файл Gradle Wrapper
-    │       └── gradle-wrapper.properties    - Версия и параметры Gradle Wrapper
+    │       ├── gradle-wrapper.jar         - Исполняемый файл Gradle Wrapper
+    │       └── gradle-wrapper.properties  - Версия и параметры Gradle Wrapper
     ├── src/
-    │   └── main/
-    │       ├── kotlin/
-    │       │   └── Main.kt                  - Основной исходный код
-    │       └── test/
-    │           └── MainTest.kt              - Тесты
-    ├── .gitignore                           - Файлы, игнорируемые Git
+    │   ├── main/
+    │   │   └── kotlin/
+    │   │       └── battleship/
+    │   │           ├── Main.kt                           - Точка входа
+    │   │           ├── application/
+    │   │           │   ├── GameSession.kt                - Интерфейс координатора сессии
+    │   │           │   └── GameSessionImpl.kt            - Реализация сессии
+    │   │           ├── domain/
+    │   │           │   ├── bot/
+    │   │           │   │   └── Bots.kt                   - Стратегии бота
+    │   │           │   ├── model/
+    │   │           │   │   ├── Board.kt                  - Игровое поле 10x10
+    │   │           │   │   ├── Coordinate.kt             - Координата клетки
+    │   │           │   │   ├── Enums.kt                  - Перечисления
+    │   │           │   │   ├── Game.kt                   - Агрегат партии
+    │   │           │   │   ├── Player.kt                 - Игрок
+    │   │           │   │   ├── Ship.kt                   - Корабль
+    │   │           │   │   ├── ShipType.kt               - Типы кораблей
+    │   │           │   │   └── ValueObjects.kt           - Объекты-значения
+    │   │           │   └── service/
+    │   │           │       ├── EloRatingService.kt       - Расчёт рейтинга Эло
+    │   │           │       ├── EloRatingServiceImpl.kt   - Реализация
+    │   │           │       ├── ShipPlacementValidator.kt - Интерфейс расстановки кораблей
+    │   │           │       ├── StatisticsService.kt      - Интерфейс сбора статистики игрока
+    │   │           │       └── TurnValidator.kt          - Интерфейс проверки возможности хода
+    │   │           └── infrastructure/
+    │   │               └── Repositories.kt               - Интерфейсы реализации репозиториев
+    │   └── test/
+    │       └── kotlin/
+    │           └── (пусто)                  - Место для будущих юнит-тестов
+    ├── .gitignore                           - Игнорируемые Git файлы
     ├── LICENSE                              - Лицензия проекта
-    ├── README.md                            - Этот файл
-    ├── build.gradle.kts                     - Конфигурация сборки
-    ├── settings.gradle.kts                  - Название проекта и настройки Gradle
+    ├── README.md                            - Описание проекта, инструкции по сборке и архитектуре
+    ├── build.gradle.kts                     - Конфигурация сборки Gradle
+    ├── settings.gradle.kts                  - Имя проекта и настройки Gradle
     ├── gradle.properties                    - Глобальные свойства Gradle
     └── gradlew                              - Запуск Gradle Wrapper на Linux/macOS
-
     ```
