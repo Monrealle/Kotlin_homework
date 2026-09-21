@@ -1,4 +1,10 @@
-plugins {
-    id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
+pluginManagement {
+    repositories {
+        gradlePluginPortal()
+        maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+        google()
+        mavenCentral()
+    }
 }
+
 rootProject.name = "Kotlin_homework"

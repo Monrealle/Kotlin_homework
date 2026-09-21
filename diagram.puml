@@ -1,229 +1,379 @@
 @startuml
 !theme plain
 
-' Player and ELO
-class Player {
-  + id: String
-  + name: String
+' =============================================================================================
+' DOMAIN MODEL
+' =============================================================================================
+
+package "Domain / Model" {
+
+    class Player {
+        + id: String
+        + name: String
+    }
+
+    class EloRating {
+        + player: Player
+        + rating: Int
+        {static} + INITIAL_RATING: Int = 1000
+    }
+
+    class EloChange {
+        + player: Player
+        + oldRating: Int
+        + newRating: Int
+        + delta: Int
+    }
+
+    class Coordinate {
+        + row: Int
+        + col: Int
+        + toDisplayString(): String
+        {static} + ofOrNull(row: Int, col: Int): Coordinate?
+        {static} + fromString(input: String): Coordinate?
+    }
+
+    enum ShipType {
+        BATTLESHIP
+        CRUISER
+        DESTROYER
+        BOAT
+    }
+
+    class Ship {
+        + type: ShipType
+        + segments: List<Coordinate>
+        + isSunk(hits: Set<Coordinate>): Boolean
+        + overlapsWith(other: Ship): Boolean
+        + isAdjacentTo(other: Ship): Boolean
+    }
+
+    enum CellState {
+        EMPTY
+        SHIP
+        HIT
+        MISS
+    }
+
+    enum ShotResult {
+        MISS
+        HIT
+        SUNK
+        WIN
+    }
+
+    enum GameStatus {
+        SETUP_P1
+        SETUP_P2
+        IN_PROGRESS
+        FINISHED
+    }
+
+    class Move {
+        + turnNumber: Int
+        + player: Player
+        + coordinate: Coordinate
+        + result: ShotResult
+    }
+
+    class ValidationResult {
+        + isValid: Boolean
+        + errors: List<String>
+        {static} + success(): ValidationResult
+        {static} + failure(...): ValidationResult
+    }
+
+    class PlayerStats {
+        + gamesPlayed: Int
+        + wins: Int
+        + winRate: Double
+        + currentElo: Int
+        + display(): String
+    }
+
+    class Board {
+        + owner: Player
+        + grid: MutableMap<Coordinate, CellState>
+        + ships: MutableList<Ship>
+        + placeShips(newShips: List<Ship>)
+        + receiveShot(coord: Coordinate): ShotResult
+        + allShipsSunk(): Boolean
+        + attackedCells(): Set<Coordinate>
+        + hitCells(): Set<Coordinate>
+        + unattackedCells(): List<Coordinate>
+    }
+
+    class Game {
+        + id: String
+        + player1: Player
+        + player2: Player
+        + board1: Board
+        + board2: Board
+        + currentTurn: Player
+        + status: GameStatus
+        + moves: MutableList<Move>
+        + winner: Player?
+        + eloChanges: Map<Player, EloChange>?
+        + boardOf(player: Player): Board
+        + opponentBoardOf(player: Player): Board
+    }
 }
 
-class EloRating {
-  + player: Player
-  + rating: Int
-}
-note right of EloRating: Начальный рейтинг 1000
+' =============================================================================================
+' DOMAIN SERVICES
+' =============================================================================================
 
-interface EloRatingService {
-  + calculateRatings(winner: Player, loser: Player): Map<Player, EloChange>
-}
+package "Domain / Services" {
 
-class EloRatingServiceImpl {
-  - randomDelta(): Int
+    interface EloRatingService {
+        + calculateRatings(
+            winner: Player,
+            winnerCurrentRating: Int,
+            loser: Player,
+            loserCurrentRating: Int
+        ): Map<Player, EloChange>
+    }
+
+    class EloRatingServiceImpl {
+        - random: Random
+        - randomDelta(): Int
+    }
+
+    interface ShipPlacementValidator {
+        + validate(ships: List<Ship>): ValidationResult
+    }
+
+    class ShipPlacementValidatorImpl {
+        - expectedFleet
+        - isStraight(segments: List<Coordinate>): Boolean
+    }
+
+    interface TurnValidator {
+        + canFire(
+            game: Game,
+            player: Player,
+            coord: Coordinate
+        ): ValidationResult
+    }
+
+    class TurnValidatorImpl
+
+    interface StatisticsService {
+        + getStats(player: Player): PlayerStats
+    }
+
+    class StatisticsServiceImpl {
+        - gameRepository: GameRepository
+        - eloRatingRepository: EloRatingRepository
+    }
 }
-note right of EloRatingServiceImpl: delta: 25..33
 
 EloRatingServiceImpl ..|> EloRatingService
+ShipPlacementValidatorImpl ..|> ShipPlacementValidator
+TurnValidatorImpl ..|> TurnValidator
+StatisticsServiceImpl ..|> StatisticsService
+
 EloRatingServiceImpl ..> EloChange
-EloRating --> Player
+ShipPlacementValidatorImpl ..> ValidationResult
+TurnValidatorImpl ..> ValidationResult
+StatisticsServiceImpl ..> PlayerStats
 
-class EloChange {
-  + player: Player
-  + oldRating: Int
-  + newRating: Int
-  + delta: Int
+' =============================================================================================
+' BOT
+' =============================================================================================
+
+package "Domain / Bot" {
+
+    interface MoveStrategy {
+        + nextMove(
+            board: Board,
+            history: List<Move>
+        ): Coordinate
+    }
+
+    class RandomBot {
+        - random: Random
+    }
+
+    class SmartBot {
+        - randomBot: RandomBot
+        - random: Random
+        - getActiveHits(...): Set<Coordinate>
+        - findLineContinuation(...): Coordinate?
+    }
 }
 
-'  Game entities
-class Coordinate {
-  + row: Int
-  + col: Int
-}
-
-enum ShipType {
-  BATTLESHIP
-  CRUISER
-  DESTROYER
-  BOAT
-}
-note right of ShipType
-  BATTLESHIP = 4 клетки
-  CRUISER    = 3 клетки
-  DESTROYER  = 2 клетки
-  BOAT       = 1 клетка
-end note
-
-class Ship {
-  + type: ShipType
-  + segments: List<Coordinate>
-  + isSunk(hits: Set<Coordinate>): Boolean
-}
-
-enum CellState {
-  EMPTY
-  SHIP
-  HIT
-  MISS
-}
-
-class Board {
-  + owner: Player
-  + grid: Map<Coordinate, CellState>
-  + ships: List<Ship>
-  + receiveShot(coord: Coordinate): ShotResult
-  + allShipsSunk(): Boolean
-}
-note right of Board: isValidPlacement делегируется\nShipPlacementValidator
-
-enum ShotResult {
-  MISS
-  HIT
-  SUNK
-  WIN
-}
-
-class Move {
-  + turnNumber: Int
-  + player: Player
-  + coordinate: Coordinate
-  + result: ShotResult
-}
-
-'  Game session
-class Game {
-  + id: String
-  + player1: Player
-  + player2: Player
-  + board1: Board
-  + board2: Board
-  + currentTurn: Player
-  + status: GameStatus
-  + moves: List<Move>
-  + winner: Player?
-  + eloChanges: Map<Player, EloChange>?
-}
-
-enum GameStatus {
-  SETUP_P1
-  SETUP_P2
-  IN_PROGRESS
-  FINISHED
-}
-
-interface GameSession {
-  + startGame(p1: Player, p2: Player)
-  + placeShips(player: Player, ships: List<Ship>): ValidationResult
-  + makeMove(player: Player, coord: Coordinate): Move
-  + getGame(): Game
-}
-
-class GameSessionImpl {
-  - game: Game
-  - placementValidator: ShipPlacementValidator
-  - turnValidator: TurnValidator
-  - eloService: EloRatingService
-  - repository: GameRepository
-  - botStrategy: MoveStrategy?
-}
-
-'  Bot strategies
-interface MoveStrategy {
-  + nextMove(board: Board, history: List<Move>): Coordinate
-}
-
-class RandomBot {
-}
 RandomBot ..|> MoveStrategy
-
-class SmartBot {
-  - randomBot: RandomBot
-  - lastHit: Coordinate?
-  - huntMode: Boolean
-}
-note right of SmartBot
-  При попадании переходит в режим
-  «добивания»: обстреливает соседние
-  клетки. Иначе делегирует RandomBot.
-end note
 SmartBot ..|> MoveStrategy
 SmartBot --> RandomBot : delegates to
 
-'  Validators
-interface ShipPlacementValidator {
-  + validate(board: Board, ships: List<Ship>): ValidationResult
+' =============================================================================================
+' REPOSITORIES
+' =============================================================================================
+
+package "Domain / Repository" {
+
+    interface GameRepository {
+        + save(game: Game)
+        + findAll(): List<Game>
+        + findById(id: String): Game?
+        + findByPlayer(player: Player): List<Game>
+    }
+
+    interface PlayerRepository {
+        + save(player: Player)
+        + findAll(): List<Player>
+        + findById(id: String): Player?
+        + findByName(name: String): Player?
+    }
+
+    interface EloRatingRepository {
+        + save(rating: EloRating)
+        + findByPlayer(player: Player): EloRating
+    }
 }
 
-class ValidationResult {
-  + isValid: Boolean
-  + errors: List<String>
+' =============================================================================================
+' APPLICATION
+' =============================================================================================
+
+package "Application" {
+
+    interface GameSession {
+        + startGame(p1: Player, p2: Player)
+        + placeShips(
+            player: Player,
+            ships: List<Ship>
+        ): ValidationResult
+        + makeMove(
+            player: Player,
+            coord: Coordinate
+        ): Move
+        + getGame(): Game
+    }
+
+    class GameSessionImpl {
+        - game: Game
+        - placementValidator: ShipPlacementValidator
+        - turnValidator: TurnValidator
+        - eloService: EloRatingService
+        - gameRepository: GameRepository
+        - eloRatingRepository: EloRatingRepository
+        - botStrategy: MoveStrategy?
+    }
+
+    class RandomShipPlacer {
+        {static} + generate(): List<Ship>
+    }
 }
 
-ShipPlacementValidator ..> ValidationResult
-
-interface TurnValidator {
-  + canFire(game: Game, player: Player, coord: Coordinate): Boolean
-}
-
-'  Repositories
-interface GameRepository {
-  + save(game: Game)
-  + findAll(): List<Game>
-  + findByPlayer(player: Player): List<Game>
-}
-
-interface PlayerRepository {
-  + save(player: Player)
-  + findById(id: String): Player?
-  + findByName(name: String): Player?
-}
-
-'  Statistics
-interface StatisticsService {
-  + getStats(player: Player): PlayerStats
-}
-
-class PlayerStats {
-  + gamesPlayed: Int
-  + wins: Int
-  + winRate: Double
-  + currentElo: Int
-}
-
-'  RELATIONSHIPS
-' Game
-Game "1" --> "2" Board
-Game "1" --> "1..4" Player : player1, player2,\ncurrentTurn, winner
-Game "1" --> "*" Move
-Game ..> EloChange
-
-' Board and Ship
-Board "1" --> "*" Ship
-Ship --> ShipType
-Ship "1" --> "1..4" Coordinate
-
-' Move
-Move --> Coordinate
-Move --> ShotResult
-Move --> Player
-
-' EloRating linked to Player
-EloRating --> Player
-
-' GameSessionImpl
 GameSessionImpl ..|> GameSession
-GameSessionImpl --> Game
+
 GameSessionImpl --> ShipPlacementValidator
 GameSessionImpl --> TurnValidator
 GameSessionImpl --> EloRatingService
 GameSessionImpl --> GameRepository
-GameSessionImpl --> MoveStrategy : uses if bot
+GameSessionImpl --> EloRatingRepository
+GameSessionImpl --> MoveStrategy
+GameSessionImpl --> Game
 
-' Repositories
-GameRepository ..> Game
-PlayerRepository ..> Player
+RandomShipPlacer --> Ship
+RandomShipPlacer --> Coordinate
+RandomShipPlacer --> ShipType
 
-' Statistics
-StatisticsService ..> GameRepository
-StatisticsService ..> PlayerRepository
-StatisticsService ..> PlayerStats
+' =============================================================================================
+' INFRASTRUCTURE
+' =============================================================================================
+
+package "Infrastructure" {
+
+    class InMemoryGameRepository
+    class InMemoryPlayerRepository
+    class InMemoryEloRatingRepository
+
+    class FilePlayerRepository {
+        - file: File
+        - cache: MutableMap<String, Player>
+    }
+
+    class FileEloRatingRepository {
+        - file: File
+        - cache: MutableMap<String, Int>
+    }
+}
+
+InMemoryGameRepository ..|> GameRepository
+InMemoryPlayerRepository ..|> PlayerRepository
+InMemoryEloRatingRepository ..|> EloRatingRepository
+
+FilePlayerRepository ..|> PlayerRepository
+FileEloRatingRepository ..|> EloRatingRepository
+
+FilePlayerRepository ..> Player
+FileEloRatingRepository ..> EloRating
+
+' =============================================================================================
+' PRESENTATION
+' =============================================================================================
+
+package "Presentation / GUI" {
+
+    class GuiController {
+        + playerRepo: PlayerRepository
+        + gameRepo: GameRepository
+        + eloRepo: EloRatingRepository
+        - placementValidator: ShipPlacementValidator
+        - turnValidator: TurnValidator
+        - eloService: EloRatingService
+        - statisticsService: StatisticsService
+        + session: GameSessionImpl?
+        + game: Game?
+        + addPlayer(name: String): String?
+        + startGame(p1: Player, p2: Player): String?
+        + placeShips(
+            player: Player,
+            ships: List<Ship>
+        ): ValidationResult
+        + makeMove(coord: Coordinate): String?
+        + getStats(player: Player): PlayerStats
+        + finish()
+    }
+
+    class AdminApp
+}
+
+GuiController --> PlayerRepository
+GuiController --> GameRepository
+GuiController --> EloRatingRepository
+GuiController --> ShipPlacementValidator
+GuiController --> TurnValidator
+GuiController --> EloRatingService
+GuiController --> StatisticsService
+GuiController --> GameSessionImpl
+
+' =============================================================================================
+' RELATIONSHIPS BETWEEN DOMAIN ENTITIES
+' =============================================================================================
+
+EloRating --> Player
+EloChange --> Player
+
+Ship --> ShipType
+Ship --> Coordinate
+
+Board --> Player
+Board --> Ship
+Board --> Coordinate
+Board --> CellState
+
+Move --> Player
+Move --> Coordinate
+Move --> ShotResult
+
+Game --> Player
+Game --> Board
+Game --> Move
+Game --> GameStatus
+Game --> EloChange
 
 @enduml

@@ -1,59 +1,189 @@
 package battleship.infrastructure
 
-import battleship.domain.model.*
+import battleship.domain.model.EloRating
+import battleship.domain.model.Game
+import battleship.domain.model.Player
+import battleship.domain.repository.EloRatingRepository
+import battleship.domain.repository.GameRepository
+import battleship.domain.repository.PlayerRepository
 
-// ─── Интерфейсы ──────────────────────────────────────────────────────────────
+/**
+ * =============================================================================================
+ * In-memory реализации репозиториев.
+ *
+ * Данные хранятся только в оперативной памяти и исчезают
+ * после завершения работы приложения.
+ *
+ * Эти реализации используются для временного хранения данных
+ * и могут быть заменены файловыми или SQL-репозиториями
+ * без изменения Domain и Application-слоёв.
+ * =============================================================================================
+ */
 
-interface GameRepository {
-    fun save(game: Game)
-    fun findAll(): List<Game>
-    fun findById(id: String): Game?
-    fun findByPlayer(player: Player): List<Game>
-}
+/**
+ * =============================================================================================
+ * In-memory репозиторий игровых партий.
+ *
+ * Хранит объекты [Game] в `MutableMap`.
+ * Ключом является уникальный идентификатор партии.
+ * =============================================================================================
+ */
+class InMemoryGameRepository : GameRepository {
 
-interface PlayerRepository {
-    fun save(player: Player)
-    fun findAll(): List<Player>
-    fun findById(id: String): Player?
-    fun findByName(name: String): Player?
+    /**
+     * Внутреннее хранилище партий.
+     *
+     * Ключ - идентификатор партии,
+     * значение - объект [Game].
+     */
+    private val store = mutableMapOf<String, Game>()
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Сохраняет игровую партию.
+     *
+     * @param game партия для сохранения
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun save(game: Game) {
+        store[game.id] = game
+    }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Возвращает все сохранённые партии.
+     *
+     * @return список партий
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun findAll(): List<Game> =
+        store.values.toList()
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Ищет партию по идентификатору.
+     *
+     * @param id идентификатор партии
+     * @return найденная партия или `null`
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun findById(id: String): Game? =
+        store[id]
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Возвращает все партии указанного игрока.
+     *
+     * @param player игрок
+     * @return список его партий
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun findByPlayer(player: Player): List<Game> =
+        store.values.filter {
+            it.player1 == player || it.player2 == player
+        }
 }
 
 /**
- * Репозиторий рейтингов Эло.
- * Не описан в оригинальной архитектуре явно, добавлен для хранения
- * актуальных рейтингов без пересчёта истории. (см. README — архитектурное решение)
+ * =============================================================================================
+ * In-memory репозиторий игроков.
+ *
+ * Хранит игроков в оперативной памяти.
+ * =============================================================================================
  */
-interface EloRatingRepository {
-    fun save(rating: EloRating)
-    fun findByPlayer(player: Player): EloRating
-}
-
-// ─── In-memory реализации ─────────────────────────────────────────────────────
-
-class InMemoryGameRepository : GameRepository {
-    private val store = mutableMapOf<String, Game>()
-
-    override fun save(game: Game)          { store[game.id] = game }
-    override fun findAll(): List<Game>     = store.values.toList()
-    override fun findById(id: String): Game? = store[id]
-    override fun findByPlayer(player: Player): List<Game> =
-        store.values.filter { it.player1 == player || it.player2 == player }
-}
-
 class InMemoryPlayerRepository : PlayerRepository {
+
+    /**
+     * Внутреннее хранилище игроков.
+     *
+     * Ключ - уникальный идентификатор игрока.
+     */
     private val store = mutableMapOf<String, Player>()
 
-    override fun save(player: Player)          { store[player.id] = player }
-    override fun findAll(): List<Player>       = store.values.toList()
-    override fun findById(id: String): Player? = store[id]
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Сохраняет игрока.
+     *
+     * @param player игрок для сохранения
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun save(player: Player) {
+        store[player.id] = player
+    }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Возвращает всех игроков.
+     *
+     * @return список игроков
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun findAll(): List<Player> =
+        store.values.toList()
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Ищет игрока по идентификатору.
+     *
+     * @param id идентификатор игрока
+     * @return игрок или `null`
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun findById(id: String): Player? =
+        store[id]
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Ищет игрока по имени без учёта регистра.
+     *
+     * @param name имя игрока
+     * @return игрок или `null`
+     * ---------------------------------------------------------------------------------------------
+     */
     override fun findByName(name: String): Player? =
-        store.values.find { it.name.equals(name, ignoreCase = true) }
+        store.values.find {
+            it.name.equals(name, ignoreCase = true)
+        }
 }
 
+/**
+ * =============================================================================================
+ * In-memory репозиторий рейтингов Эло.
+ *
+ * Хранит актуальные значения рейтинга игроков в оперативной памяти.
+ * =============================================================================================
+ */
 class InMemoryEloRatingRepository : EloRatingRepository {
+
+    /**
+     * Внутреннее хранилище рейтингов.
+     *
+     * Ключ - идентификатор игрока.
+     */
     private val store = mutableMapOf<String, EloRating>()
 
-    override fun save(rating: EloRating)           { store[rating.player.id] = rating }
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Сохраняет рейтинг игрока.
+     *
+     * @param rating объект рейтинга
+     * ---------------------------------------------------------------------------------------------
+     */
+    override fun save(rating: EloRating) {
+        store[rating.player.id] = rating
+    }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Возвращает текущий рейтинг игрока.
+     *
+     * Если рейтинг ещё не был сохранён,
+     * используется начальное значение [EloRating.INITIAL_RATING].
+     *
+     * @param player игрок
+     * @return текущий рейтинг
+     * ---------------------------------------------------------------------------------------------
+     */
     override fun findByPlayer(player: Player): EloRating =
-        store[player.id] ?: EloRating(player)  // По умолчанию — 1000
+        store[player.id] ?: EloRating(player)
 }

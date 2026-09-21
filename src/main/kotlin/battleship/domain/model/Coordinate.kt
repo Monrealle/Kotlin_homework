@@ -59,17 +59,27 @@ data class Coordinate(val row: Int, val col: Int) {
          * ---------------------------------------------------------------------------------------------
          * Разбор строкового представления координаты.
          *
-         * Поддерживаемые форматы: "A1", "J10", "b5" (регистр не важен).
+         * Поддерживаемые форматы: "A1", "J10", "b5".
+         * Регистр букв не важен.
          *
-         * @param input строка вида "A1".."J10"
-         * @return [Coordinate] или `null`, если формат неверен или координата вне поля
+         * Разрешаются только координаты от A1 до J10.
+         *
+         * @param input строковое представление координаты
+         * @return [Coordinate] или `null`, если формат неверен
          * ---------------------------------------------------------------------------------------------
          */
         fun fromString(input: String): Coordinate? {
+
             val s = input.trim().uppercase()
-            if (s.length !in 2..3) return null
+
+            /* Разрешаем только A1..J10. */
+            if (!s.matches(Regex("[A-J](10|[1-9])"))) {
+                return null
+            }
+
             val row = s[0] - 'A'
-            val col = s.substring(1).toIntOrNull()?.minus(1) ?: return null
+            val col = s.substring(1).toInt() - 1
+
             return ofOrNull(row, col)
         }
     }
