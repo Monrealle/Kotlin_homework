@@ -2,8 +2,8 @@ package battleship.application
 
 import battleship.domain.bot.MoveStrategy
 import battleship.domain.model.*
+import battleship.domain.repository.*
 import battleship.domain.service.*
-import battleship.infrastructure.*
 import java.util.UUID
 
 /**
@@ -11,27 +11,20 @@ import java.util.UUID
  * Реализация игровой сессии - координатора одной партии «Морского боя».
  *
  * Жизненный цикл игры:
- * 1. [startGame] - создаётся объект [Game] со статусом `SETUP_P1`.
- * 2. [placeShips] для первого игрока → статус `SETUP_P2` (если оба человека)
- *    или сразу `IN_PROGRESS` (если второй игрок - бот, его корабли уже расставлены).
- * 3. [placeShips] для второго игрока → статус `IN_PROGRESS`.
- * 4. [makeMove] вызывается многократно. После промаха ход переходит к оппоненту.
- *    При попадании/потоплении ход остаётся у того же игрока.
- * 5. При уничтожении всех кораблей одного из игроков игра завершается (`FINISHED`),
- *    вычисляется рейтинг Эло и сохраняется в репозиториях.
  *
- * Игра с ботом:
- * Если в конструктор передан [botStrategy], то считается, что [player2] - бот.
- * Его корабли генерируются автоматически при старте (через [RandomShipPlacer]).
- * После хода человека бот отвечает серией выстрелов (пока не промахнётся или не победит).
- * Все ходы бота добавляются в общий лог [Game.moves].
+ * 1. [startGame] - создаётся объект [Game] со статусом `SETUP_P1`.
+ * 2. [placeShips] для первого игрока → статус `SETUP_P2`.
+ * 3. [placeShips] для второго игрока → статус `IN_PROGRESS`.
+ * 4. [makeMove] выполняется многократно до завершения партии.
+ * 5. При победе устанавливается `FINISHED`, определяется победитель
+ *    и рассчитываются изменения рейтинга Эло.
  *
  * @param placementValidator валидатор расстановки кораблей
  * @param turnValidator валидатор очередности и допустимости выстрела
  * @param eloService сервис расчёта рейтинга Эло
- * @param gameRepository репозиторий для сохранения игр
+ * @param gameRepository репозиторий игровых партий
  * @param eloRatingRepository репозиторий текущих рейтингов игроков
- * @param botStrategy стратегия бота (null, если играют два человека)
+ * @param botStrategy стратегия бота или `null` для игры двух людей
  * =============================================================================================
  */
 class GameSessionImpl(
@@ -213,90 +206,4 @@ class GameSessionImpl(
 
     private fun opponent(player: Player): Player =
         if (player == game.player1) game.player2 else game.player1
-}
-
-/**
- * =============================================================================================
- * Утилита для генерации случайной расстановки кораблей.
- *
- * Использует метод случайного поиска с ограничением в 1000 попыток:
- * - для каждого типа корабля подбирается случайная позиция, не пересекающаяся
- *   и не соприкасающаяся с уже размещёнными (включая диагонали).
- * - если за 1000 попыток не удалось разместить все корабли - выбрасывается ошибка.
- *
- * Применяется для автоматической расстановки флота бота и для опции
- * «Авторасстановка» в консольном интерфейсе.
- * =============================================================================================
- */
-internal object RandomShipPlacer {
-
-    private val FLEET = listOf(
-        ShipType.BATTLESHIP to 1, /* 1 линкор (по 4 клетки)   */
-        ShipType.CRUISER to 2,    /* 2 крейсера (по 3 клетки) */
-        ShipType.DESTROYER to 3,  /* 3 эсминца (по 2 клетки)  */
-        ShipType.BOAT to 4        /* 4 катера (по 1 клетке)   */
-    )
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Генерирует полную расстановку флота.
-     * @throws IllegalStateException если не удалось подобрать расстановку за 1000 попыток
-     * ---------------------------------------------------------------------------------------------
-     */
-    fun generate(): List<Ship> {
-        repeat(1000) {
-            val result = tryPlace()
-            if (result != null) return result
-        }
-        error("RandomShipPlacer: не удалось сгенерировать расстановку за 1000 попыток")
-    }
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Одна попытка разместить все корабли.
-     * Возвращает список при успехе, иначе null.
-     * ---------------------------------------------------------------------------------------------
-     */
-    private fun tryPlace(): List<Ship>? {
-        val placed = mutableListOf<Ship>()
-        /* Зона «буфера» вокруг уже размещённых кораблей (включая сами клетки) */
-        val forbidden = mutableSetOf<Coordinate>()
-
-        for ((type, count) in FLEET) {
-            repeat(count) {
-                val ship = randomShipFor(type, forbidden) ?: return null
-                placed.add(ship)
-                /* Запрещаем клетки корабля + все 8 соседей каждого сегмента */
-                for (seg in ship.segments) {
-                    for (dr in -1..1) for (dc in -1..1) {
-                        Coordinate.ofOrNull(seg.row + dr, seg.col + dc)?.let { forbidden.add(it) }
-                    }
-                }
-            }
-        }
-        return placed
-    }
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Пытается найти случайную позицию для корабля [type],
-     * не попадающую в [forbidden]. Делает до 200 попыток.
-     * ---------------------------------------------------------------------------------------------
-     */
-    private fun randomShipFor(type: ShipType, forbidden: Set<Coordinate>): Ship? {
-        repeat(200) {
-            val horizontal = (0..1).random() == 0
-            val row = (0..9).random()
-            val col = (0..9).random()
-            val segments = if (horizontal) {
-                (0 until type.size).mapNotNull { Coordinate.ofOrNull(row, col + it) }
-            } else {
-                (0 until type.size).mapNotNull { Coordinate.ofOrNull(row + it, col) }
-            }
-            if (segments.size == type.size && segments.none { it in forbidden }) {
-                return Ship(type, segments)
-            }
-        }
-        return null
-    }
 }
