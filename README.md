@@ -40,4 +40,61 @@
 
 ```bash
 ./gradlew build
-    ```
+```
+
+## Структура проекта
+
+```
+src/
+├── main/
+│   └── kotlin/
+│       └── battleship/
+│           ├── Main.kt
+│           │
+│           ├── application/
+│           │   ├── GameSession.kt
+│           │   ├── GameSessionImpl.kt
+│           │   └── RandomShipPlacer.kt
+│           │
+│           ├── domain/
+│           │   ├── bot/
+│           │   │   └── Bots.kt
+│           │   │
+│           │   ├── model/
+│           │   │   ├── Board.kt
+│           │   │   ├── Coordinate.kt
+│           │   │   ├── Game.kt
+│           │   │   ├── Move.kt
+│           │   │   ├── Player.kt
+│           │   │   ├── Ship.kt
+│           │   │   ├── ShipType.kt
+│           │   │   └── ValueObjects.kt
+│           │   │
+│           │   ├── repository/
+│           │   │   └── Repositories.kt
+│           │   │
+│           │   └── service/
+│           │       ├── EloRatingService.kt
+│           │       ├── EloRatingServiceImpl.kt
+│           │       ├── ShipPlacementValidator.kt
+│           │       ├── StatisticsService.kt
+│           │       └── TurnValidator.kt
+│           │
+│           ├── infrastructure/
+│           │   ├── Repositories.kt
+│           │   └── FileRepositories.kt
+│           │
+│           └── presentation/
+│               └── gui/
+│                   ├── App.kt
+│                   └── GuiController.kt
+│
+├── test/
+│   └── kotlin/
+│       └── MainTest.kt
+│
+├── README.md
+├── diagram.puml
+├── build.gradle.kts
+└── settings.gradle.kts
+```
