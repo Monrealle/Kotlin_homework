@@ -1,6 +1,5 @@
 package battleship.application
 
-import battleship.domain.bot.MoveStrategy
 import battleship.domain.model.*
 import battleship.domain.repository.*
 import battleship.domain.service.*
@@ -24,7 +23,6 @@ import java.util.UUID
  * @param eloService сервис расчёта рейтинга Эло
  * @param gameRepository репозиторий игровых партий
  * @param eloRatingRepository репозиторий текущих рейтингов игроков
- * @param botStrategy стратегия бота или `null` для игры двух людей
  * =============================================================================================
  */
 class GameSessionImpl(
@@ -32,31 +30,19 @@ class GameSessionImpl(
     private val turnValidator: TurnValidator,
     private val eloService: EloRatingService,
     private val gameRepository: GameRepository,
-    private val eloRatingRepository: EloRatingRepository,
-    private val botStrategy: MoveStrategy? = null
+    private val eloRatingRepository: EloRatingRepository
 ) : GameSession {
 
     private lateinit var game: Game
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Создаёт новую партию.
-     *
-     * Если игра против бота - сразу расставляет корабли бота и переводит игру
-     * в фазу расстановки только для первого игрока.
+     * Создаёт новую партию со статусом `SETUP_P1` и сохраняет её в репозитории.
      * ---------------------------------------------------------------------------------------------
      */
     override fun startGame(p1: Player, p2: Player) {
         game = Game(id = UUID.randomUUID().toString(), player1 = p1, player2 = p2)
         gameRepository.save(game)
-
-        if (botStrategy != null) {
-            /* Бот расставляет корабли заранее */
-            val botShips = RandomShipPlacer.generate()
-            game.board2.placeShips(botShips)
-            /* Ждём расстановки только у p1 */
-            game.status = GameStatus.SETUP_P1
-        }
     }
 
     /**
@@ -79,7 +65,7 @@ class GameSessionImpl(
                         "Невозможно расставить корабли для ${player.name}: статус игры ${game.status}"
                     )
                 game.board1.placeShips(ships)
-                game.status = if (botStrategy != null) GameStatus.IN_PROGRESS else GameStatus.SETUP_P2
+                game.status = GameStatus.SETUP_P2
             }
             game.player2 -> {
                 if (game.status != GameStatus.SETUP_P2)
@@ -105,8 +91,6 @@ class GameSessionImpl(
      * Алгоритм:
      * - Проверяет право хода через [turnValidator].
      * - Выполняет выстрел (см. [executeShot]).
-     * - Если после выстрела ход переходит к боту - запускает серию ответных ходов
-     *   (см. [executeBotTurn]).
      *
      * @throws IllegalArgumentException если ход нелегален (очерёдность, повтор, статус)
      * @return объект [Move], описывающий ход, совершённый игроком [player]
@@ -116,16 +100,7 @@ class GameSessionImpl(
         val validation = turnValidator.canFire(game, player, coord)
         require(validation.isValid) { validation.errors.joinToString("; ") }
 
-        val playerMove = executeShot(player, coord)
-
-        /* Если ход переключился к боту — отыгрываем всю серию бота */
-        if (game.status == GameStatus.IN_PROGRESS
-            && botStrategy != null
-            && game.currentTurn == game.player2) {
-            executeBotTurn()
-        }
-
-        return playerMove
+        return executeShot(player, coord)
     }
 
     /**
@@ -171,20 +146,6 @@ class GameSessionImpl(
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Запускает цикл ходов бота: бот стреляет до тех пор, пока не промахнётся
-     * или пока не одержит победу.
-     * ---------------------------------------------------------------------------------------------
-     */
-    private fun executeBotTurn() {
-        while (game.status == GameStatus.IN_PROGRESS
-            && game.currentTurn == game.player2
-            && botStrategy != null) {
-            val coord = botStrategy.nextMove(game.board1, game.moves)
-            executeShot(game.player2, coord)
-        }
-    }
-    /**
-     * ---------------------------------------------------------------------------------------------
      * Завершает игру победой [winner].
      * Рассчитывает и сохраняет изменения рейтинга Эло для обоих игроков.
      * ---------------------------------------------------------------------------------------------
@@ -193,14 +154,13 @@ class GameSessionImpl(
         game.winner = winner
         game.status = GameStatus.FINISHED
 
-        val loser         = opponent(winner)
-        val winnerRating  = eloRatingRepository.findByPlayer(winner).rating
-        val loserRating   = eloRatingRepository.findByPlayer(loser).rating
-        val changes       = eloService.calculateRatings(winner, winnerRating, loser, loserRating)
+        val loser = opponent(winner)
+        val winnerRating = eloRatingRepository.findByPlayer(winner).rating
+        val loserRating = eloRatingRepository.findByPlayer(loser).rating
+        val changes = eloService.calculateRatings(winner, winnerRating, loser, loserRating)
 
         game.eloChanges = changes
-        changes.values.forEach { ch ->
-            eloRatingRepository.save(EloRating(ch.player, ch.newRating))
+        changes.values.forEach { ch -> eloRatingRepository.save(EloRating(ch.player, ch.newRating))
         }
     }
 

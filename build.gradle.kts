@@ -3,7 +3,6 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 plugins {
     kotlin("jvm") version "1.9.22"
     id("org.jetbrains.compose") version "1.6.0"
-    kotlin("plugin.serialization") version "1.9.22"
 }
 
 group = "battleship"
@@ -16,20 +15,13 @@ repositories {
 }
 
 dependencies {
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Зависимость JUnit Platform Launcher.
-     *
-     * Необходима Gradle для запуска тестов через JUnit Platform.
-     * ---------------------------------------------------------------------------------------------
-     */
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     implementation(compose.desktop.currentOs)
-    implementation(compose.material3)   // ← добавить
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.2")
+    implementation(compose.material3)
+    implementation("org.xerial:sqlite-jdbc:3.46.1.0")
 
     testImplementation(kotlin("test"))
     testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 /**

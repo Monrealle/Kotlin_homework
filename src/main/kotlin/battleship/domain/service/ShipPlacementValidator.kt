@@ -43,9 +43,7 @@ interface ShipPlacementValidator {
  */
 class ShipPlacementValidatorImpl : ShipPlacementValidator {
 
-    /**
-     * Ожидаемый состав классического флота.
-     */
+    /* Ожидаемый состав классического флота. */
     private val expectedFleet = mapOf(
         ShipType.BATTLESHIP to 1,
         ShipType.CRUISER to 2,

@@ -4,9 +4,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import battleship.domain.repository.*
 import battleship.domain.service.*
 import battleship.infrastructure.*
+import battleship.infrastructure.database.Database
 import battleship.presentation.gui.AdminApp
 import battleship.presentation.gui.GuiController
 
@@ -16,73 +16,71 @@ import battleship.presentation.gui.GuiController
  *
  * Отвечает за сборку зависимостей приложения:
  *
- * 1. Создаёт репозитории.
- * 2. Создаёт Domain-сервисы.
- * 3. Создаёт GUI-контроллер.
- * 4. Запускает Compose Desktop приложение.
+ * 1. Инициализирует локальную SQLite-базу данных.
+ * 2. Создаёт SQLite-репозитории.
+ * 3. Создаёт Domain-сервисы.
+ * 4. Создаёт GUI-контроллер.
+ * 5. Запускает Compose Desktop приложение.
  * =============================================================================================
  */
 fun main() {
 
-    /* ─────────────────────────────────────────────────────────────────────────
-       Infrastructure
-       ──────────────────────────────────────────────────────────────────────── */
-
     /**
-     * Репозиторий игроков с сохранением в JSON-файл.
-     */
-    val playerRepo = FilePlayerRepository()
-
-    /**
-     * Временный репозиторий партий в оперативной памяти.
+     * ---------------------------------------------------------------------------------------------
+     * Инициализация локальной SQLite-базы данных.
      *
-     * В дальнейшем может быть заменён на SQLite-реализацию
-     * без изменения остальных слоёв.
+     * При запуске создаётся файл базы данных и необходимые таблицы,
+     * если они ещё не существуют.
+     * ---------------------------------------------------------------------------------------------
      */
-    val gameRepo = InMemoryGameRepository()
+    Database.init()
 
     /**
-     * Репозиторий рейтингов Эло с сохранением в JSON-файл.
+     * ---------------------------------------------------------------------------------------------
+     * SQLite-репозитории.
+     *
+     * Все основные данные приложения теперь сохраняются
+     * в локальной SQLite-базе данных.
+     * ---------------------------------------------------------------------------------------------
      */
-    val eloRepo = FileEloRatingRepository()
+    val playerRepo = SqlitePlayerRepository()
+    val gameRepo = SqliteGameRepository()
+    val eloRepo = SqliteEloRatingRepository()
 
-    /* ─────────────────────────────────────────────────────────────────────────
-       Domain services
-       ──────────────────────────────────────────────────────────────────────── */
-
-    val placementValidator =
-        ShipPlacementValidatorImpl()
-
-    val turnValidator =
-        TurnValidatorImpl()
-
-    val eloService =
-        EloRatingServiceImpl()
-
-    val statisticsService =
-        StatisticsServiceImpl(
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Domain services.
+     * ---------------------------------------------------------------------------------------------
+     */
+    val placementValidator = ShipPlacementValidatorImpl()
+    val turnValidator = TurnValidatorImpl()
+    val eloService = EloRatingServiceImpl()
+    val statisticsService = StatisticsServiceImpl(
             gameRepository = gameRepo,
             eloRatingRepository = eloRepo
+            )
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * GUI controller.
+     * ---------------------------------------------------------------------------------------------
+     */
+    val ctrl =
+        GuiController(
+            playerRepo = playerRepo,
+            gameRepo = gameRepo,
+            eloRepo = eloRepo,
+            placementValidator = placementValidator,
+            turnValidator = turnValidator,
+            eloService = eloService,
+            statisticsService = statisticsService
         )
 
-    /* ─────────────────────────────────────────────────────────────────────────
-       GUI controller
-       ──────────────────────────────────────────────────────────────────────── */
-
-    val ctrl = GuiController(
-        playerRepo = playerRepo,
-        gameRepo = gameRepo,
-        eloRepo = eloRepo,
-        placementValidator = placementValidator,
-        turnValidator = turnValidator,
-        eloService = eloService,
-        statisticsService = statisticsService
-    )
-
-    /* ─────────────────────────────────────────────────────────────────────────
-       Запуск Compose Desktop окна
-       ───────────────────────────────────f───────────────────────────────────── */
-
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Запуск Compose Desktop окна.
+     * ---------------------------------------------------------------------------------------------
+     */
     application {
 
         Window(

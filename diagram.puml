@@ -67,6 +67,7 @@ package "Domain / Model" {
         SETUP_P2
         IN_PROGRESS
         FINISHED
+        ABANDONED
     }
 
     class Move {
@@ -98,9 +99,7 @@ package "Domain / Model" {
         + placeShips(newShips: List<Ship>)
         + receiveShot(coord: Coordinate): ShotResult
         + allShipsSunk(): Boolean
-        + attackedCells(): Set<Coordinate>
         + hitCells(): Set<Coordinate>
-        + unattackedCells(): List<Coordinate>
     }
 
     class Game {
@@ -114,7 +113,7 @@ package "Domain / Model" {
         + moves: MutableList<Move>
         + winner: Player?
         + eloChanges: Map<Player, EloChange>?
-        + boardOf(player: Player): Board
+        + isOver(): Boolean
         + opponentBoardOf(player: Player): Board
     }
 }
@@ -126,12 +125,7 @@ package "Domain / Model" {
 package "Domain / Services" {
 
     interface EloRatingService {
-        + calculateRatings(
-            winner: Player,
-            winnerCurrentRating: Int,
-            loser: Player,
-            loserCurrentRating: Int
-        ): Map<Player, EloChange>
+        + calculateRatings(winner: Player, winnerCurrentRating: Int, loser: Player, loserCurrentRating: Int): Map<Player, EloChange>
     }
 
     class EloRatingServiceImpl {
@@ -149,11 +143,7 @@ package "Domain / Services" {
     }
 
     interface TurnValidator {
-        + canFire(
-            game: Game,
-            player: Player,
-            coord: Coordinate
-        ): ValidationResult
+        + canFire(game: Game, player: Player, coord: Coordinate): ValidationResult
     }
 
     class TurnValidatorImpl
@@ -177,35 +167,6 @@ EloRatingServiceImpl ..> EloChange
 ShipPlacementValidatorImpl ..> ValidationResult
 TurnValidatorImpl ..> ValidationResult
 StatisticsServiceImpl ..> PlayerStats
-
-' =============================================================================================
-' BOT
-' =============================================================================================
-
-package "Domain / Bot" {
-
-    interface MoveStrategy {
-        + nextMove(
-            board: Board,
-            history: List<Move>
-        ): Coordinate
-    }
-
-    class RandomBot {
-        - random: Random
-    }
-
-    class SmartBot {
-        - randomBot: RandomBot
-        - random: Random
-        - getActiveHits(...): Set<Coordinate>
-        - findLineContinuation(...): Coordinate?
-    }
-}
-
-RandomBot ..|> MoveStrategy
-SmartBot ..|> MoveStrategy
-SmartBot --> RandomBot : delegates to
 
 ' =============================================================================================
 ' REPOSITORIES
@@ -241,14 +202,8 @@ package "Application" {
 
     interface GameSession {
         + startGame(p1: Player, p2: Player)
-        + placeShips(
-            player: Player,
-            ships: List<Ship>
-        ): ValidationResult
-        + makeMove(
-            player: Player,
-            coord: Coordinate
-        ): Move
+        + placeShips(player: Player, ships: List<Ship>): ValidationResult
+        + makeMove(player: Player, coord: Coordinate): Move
         + getGame(): Game
     }
 
@@ -259,7 +214,6 @@ package "Application" {
         - eloService: EloRatingService
         - gameRepository: GameRepository
         - eloRatingRepository: EloRatingRepository
-        - botStrategy: MoveStrategy?
     }
 
     class RandomShipPlacer {
@@ -274,7 +228,6 @@ GameSessionImpl --> TurnValidator
 GameSessionImpl --> EloRatingService
 GameSessionImpl --> GameRepository
 GameSessionImpl --> EloRatingRepository
-GameSessionImpl --> MoveStrategy
 GameSessionImpl --> Game
 
 RandomShipPlacer --> Ship
@@ -291,26 +244,33 @@ package "Infrastructure" {
     class InMemoryPlayerRepository
     class InMemoryEloRatingRepository
 
-    class FilePlayerRepository {
-        - file: File
-        - cache: MutableMap<String, Player>
+    object Database {
+        + init()
+        + connect(): Connection
+        + useFile(file: File)
     }
 
-    class FileEloRatingRepository {
-        - file: File
-        - cache: MutableMap<String, Int>
-    }
+    class SqliteGameRepository
+    class SqlitePlayerRepository
+    class SqliteEloRatingRepository
 }
 
 InMemoryGameRepository ..|> GameRepository
 InMemoryPlayerRepository ..|> PlayerRepository
 InMemoryEloRatingRepository ..|> EloRatingRepository
 
-FilePlayerRepository ..|> PlayerRepository
-FileEloRatingRepository ..|> EloRatingRepository
+SqliteGameRepository ..|> GameRepository
+SqlitePlayerRepository ..|> PlayerRepository
+SqliteEloRatingRepository ..|> EloRatingRepository
 
-FilePlayerRepository ..> Player
-FileEloRatingRepository ..> EloRating
+SqliteGameRepository --> Database
+SqlitePlayerRepository --> Database
+SqliteEloRatingRepository --> Database
+
+note bottom of Database
+  SQLite: ~/.battleship/battleship.db
+  таблицы: players, ratings, games, moves
+end note
 
 ' =============================================================================================
 ' PRESENTATION
@@ -326,15 +286,13 @@ package "Presentation / GUI" {
         - turnValidator: TurnValidator
         - eloService: EloRatingService
         - statisticsService: StatisticsService
-        + session: GameSessionImpl?
+        + session: GameSession?
         + game: Game?
         + addPlayer(name: String): String?
         + startGame(p1: Player, p2: Player): String?
-        + placeShips(
-            player: Player,
-            ships: List<Ship>
-        ): ValidationResult
+        + placeShips(player: Player, ships: List<Ship>): ValidationResult
         + makeMove(coord: Coordinate): String?
+        + getGameHistory(): List<Game>
         + getStats(player: Player): PlayerStats
         + finish()
     }
@@ -349,7 +307,9 @@ GuiController --> ShipPlacementValidator
 GuiController --> TurnValidator
 GuiController --> EloRatingService
 GuiController --> StatisticsService
-GuiController --> GameSessionImpl
+GuiController --> GameSession
+GuiController ..> GameSessionImpl : creates
+AdminApp --> GuiController
 
 ' =============================================================================================
 ' RELATIONSHIPS BETWEEN DOMAIN ENTITIES
