@@ -31,10 +31,12 @@ import battleship.domain.repository.PlayerRepository
 class InMemoryGameRepository : GameRepository {
 
     /**
+     * ---------------------------------------------------------------------------------------------
      * Внутреннее хранилище партий.
      *
      * Ключ - идентификатор партии,
      * значение - объект [Game].
+     * ---------------------------------------------------------------------------------------------
      */
     private val store = mutableMapOf<String, Game>()
 
@@ -94,9 +96,11 @@ class InMemoryGameRepository : GameRepository {
 class InMemoryPlayerRepository : PlayerRepository {
 
     /**
+     * ---------------------------------------------------------------------------------------------
      * Внутреннее хранилище игроков.
      *
      * Ключ - уникальный идентификатор игрока.
+     * ---------------------------------------------------------------------------------------------
      */
     private val store = mutableMapOf<String, Player>()
 
@@ -156,9 +160,11 @@ class InMemoryPlayerRepository : PlayerRepository {
 class InMemoryEloRatingRepository : EloRatingRepository {
 
     /**
+     * ---------------------------------------------------------------------------------------------
      * Внутреннее хранилище рейтингов.
      *
      * Ключ - идентификатор игрока.
+     * ---------------------------------------------------------------------------------------------
      */
     private val store = mutableMapOf<String, EloRating>()
 

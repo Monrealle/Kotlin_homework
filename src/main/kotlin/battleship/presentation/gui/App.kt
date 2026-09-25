@@ -21,7 +21,10 @@ import battleship.domain.model.*
  *
  * 1. «Игроки» - создание игроков и просмотр их статистики.
  * 2. «Новая партия» - выбор двух игроков и запуск новой партии.
- * 3. «Текущая партия» - управление активной партией и просмотр истории ходов.
+ * 3. «История партий» - просмотр всех партий и их текущего состояния.
+ *
+ * Если активная партия существует, из вкладки «История партий» её можно открыть
+ * и продолжить администрирование ходов.
  *
  * @param ctrl контроллер GUI, через который выполняются операции приложения
  * =============================================================================================
@@ -32,56 +35,66 @@ fun AdminApp(ctrl: GuiController) {
     /* Индекс текущей вкладки. */
     var tab by remember { mutableStateOf(0) }
 
+    /* Определяет, нужно ли показывать активную партию внутри вкладки истории. */
+    var showCurrentGame by remember { mutableStateOf(false) }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Версия списка истории партий.
+     *
+     * Увеличение значения заставляет вкладку истории повторно загрузить данные
+     * из репозитория после создания или завершения партии.
+     * ---------------------------------------------------------------------------------------------
+     */
+    var historyRevision by remember {
+        mutableIntStateOf(0)
+    }
+
     /* Список игроков, отображаемый в интерфейсе. */
     val players = remember {
         mutableStateListOf<Player>()
     }
 
-    /**
-     * Загружает существующих игроков при первом отображении приложения.
-     */
+    /* Загружает существующих игроков при первом отображении приложения. */
     LaunchedEffect(Unit) {
         players.addAll(ctrl.playerRepo.findAll())
     }
 
     MaterialTheme {
-
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-
-            /**
-             * Навигация между разделами приложения.
-             */
             TabRow(
                 selectedTabIndex = tab
             ) {
-
                 Tab(
                     selected = tab == 0,
-                    onClick = { tab = 0 }
+                    onClick = {
+                        tab = 0
+                    }
                 ) {
                     Text("Игроки")
                 }
-
                 Tab(
                     selected = tab == 1,
-                    onClick = { tab = 1 }
+                    onClick = {
+                        tab = 1
+                    }
                 ) {
                     Text("Новая партия")
                 }
-
                 Tab(
                     selected = tab == 2,
-                    onClick = { tab = 2 }
+                    onClick = {
+                        tab = 2
+                        showCurrentGame = false
+                    }
                 ) {
-                    Text("Текущая партия")
+                    Text("История партий")
                 }
             }
 
-            /**
-             * Отображение содержимого выбранной вкладки.
-             */
+            /* Отображение содержимого выбранной вкладки. */
             when (tab) {
 
                 0 -> PlayersTab(
@@ -93,14 +106,22 @@ fun AdminApp(ctrl: GuiController) {
                     ctrl = ctrl,
                     players = players,
                     onStart = {
+                        historyRevision++
+                        showCurrentGame = true
                         tab = 2
                     }
                 )
 
-                2 -> GameTab(
+                2 -> HistoryTab(
                     ctrl = ctrl,
-                    onBack = {
-                        tab = 0
+                    showCurrentGame = showCurrentGame,
+                    historyRevision = historyRevision,
+                    onOpenCurrentGame = {
+                        showCurrentGame = true
+                    },
+                    onShowHistory = {
+                        showCurrentGame = false
+                        historyRevision++
                     }
                 )
             }
@@ -129,7 +150,6 @@ fun PlayersTab(
     ctrl: GuiController,
     players: MutableList<Player>
 ) {
-
     var name by remember {
         mutableStateOf("")
     }
@@ -142,20 +162,14 @@ fun PlayersTab(
         modifier = Modifier.padding(16.dp)
     ) {
 
-        /**
-         * ---------------------------------------------------------------------------------------------
-         * Форма добавления нового игрока.
-         * ---------------------------------------------------------------------------------------------
-         */
+        /* орма добавления нового игрока. */
         Text(
             "Добавить игрока",
             fontWeight = FontWeight.Bold
         )
-
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
-
             OutlinedTextField(
                 value = name,
                 onValueChange = {
@@ -174,7 +188,6 @@ fun PlayersTab(
 
             Button(
                 onClick = {
-
                     error = ctrl.addPlayer(name)
 
                     if (error == null) {
@@ -193,10 +206,7 @@ fun PlayersTab(
             }
         }
 
-        /**
-         * Отображение сообщения об ошибке,
-         * если добавить игрока не удалось.
-         */
+        /* Отображение сообщения об ошибке, если добавить игрока не удалось. */
         error?.let {
             Text(
                 it,
@@ -226,9 +236,14 @@ fun PlayersTab(
          * - винрейт.
          * ---------------------------------------------------------------------------------------------
          */
+        val statsById =
+            remember(players.toList()) {
+                players.associate { it.id to ctrl.getStats(it) }
+            }
+
         players.forEach { p ->
 
-            val stats = ctrl.getStats(p)
+            val stats = statsById.getValue(p.id)
 
             Text(
                 "${p.name}  " +
@@ -259,7 +274,6 @@ fun NewGameTab(
     players: List<Player>,
     onStart: () -> Unit
 ) {
-
     var p1 by remember {
         mutableStateOf<Player?>(null)
     }
@@ -275,7 +289,6 @@ fun NewGameTab(
     Column(
         modifier = Modifier.padding(16.dp)
     ) {
-
         /**
          * ---------------------------------------------------------------------------------------------
          * Выбор первого игрока.
@@ -298,7 +311,6 @@ fun NewGameTab(
                 RadioButton(
                     selected = p1 == p,
                     onClick = {
-
                         p1 = p
 
                         if (p2 == p) {
@@ -331,17 +343,13 @@ fun NewGameTab(
         )
 
         players.forEach { p ->
-
             if (p != p1) {
-
                 Row(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-
                     RadioButton(
                         selected = p2 == p,
                         onClick = {
-
                             p2 = p
                             error = null
                         }
@@ -366,14 +374,11 @@ fun NewGameTab(
          */
         Button(
             onClick = {
-
                 val a = p1
                 val b = p2
 
                 if (a == null || b == null) {
-
                     error = "Выберите обоих игроков"
-
                     return@Button
                 }
 
@@ -384,10 +389,7 @@ fun NewGameTab(
 
                 if (error == null) {
 
-                    /**
-                     * Автоматически генерируем и устанавливаем
-                     * корректную расстановку кораблей для обоих игроков.
-                     */
+                    /* Автоматически генерируем и устанавливаем корректную расстановку кораблей для обоих игроков. */
                     val firstPlacement =
                         ctrl.placeShips(
                             a,
@@ -414,7 +416,7 @@ fun NewGameTab(
                         return@Button
                     }
 
-                    /* После успешного запуска переходим к текущей партии. */
+                    /* После успешного запуска переходим к экрану текущей партии. */
                     onStart()
                 }
             }
@@ -422,9 +424,7 @@ fun NewGameTab(
             Text("Начать партию")
         }
 
-        /**
-         * Отображение ошибки создания партии.
-         */
+        /* Отображение ошибки создания партии. */
         error?.let {
             Text(
                 it,
@@ -436,11 +436,261 @@ fun NewGameTab(
 
 /**
  * =============================================================================================
+ * Вкладка истории партий.
+ *
+ * Отображает все партии, сохранённые в репозитории.
+ *
+ * Для каждой партии показываются:
+ *
+ * - игрок 1;
+ * - игрок 2;
+ * - статус партии;
+ * - победитель;
+ * - количество выполненных ходов.
+ *
+ * Если существует активная партия, её можно открыть из истории
+ * и продолжить администрирование ходов.
+ *
+ * @param ctrl контроллер GUI
+ * @param showCurrentGame определяет, показывать ли текущую партию
+ * @param historyRevision версия списка истории
+ * @param onOpenCurrentGame открывает активную партию
+ * @param onShowHistory возвращает к истории партий
+ * =============================================================================================
+ */
+@Composable
+fun HistoryTab(
+    ctrl: GuiController,
+    showCurrentGame: Boolean,
+    historyRevision: Int,
+    onOpenCurrentGame: () -> Unit,
+    onShowHistory: () -> Unit
+) {
+
+    /* Если пользователь открыл текущую партию, показываем существующий экран игры. */
+    if (showCurrentGame && ctrl.game != null) {
+        GameTab(
+            ctrl = ctrl,
+            onBack = onShowHistory
+        )
+
+        return
+    }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Загрузка истории партий из репозитория.
+     *
+     * Зависимость от historyRevision позволяет принудительно перечитать
+     * историю после создания или завершения партии.
+     * ---------------------------------------------------------------------------------------------
+     */
+    val games = remember(historyRevision) {
+        ctrl.getGameHistory()
+    }
+
+    val inProgressCount = games.count { !it.isOver() }
+    val finishedCount = games.count { it.status == GameStatus.FINISHED }
+    val abandonedCount = games.count { it.status == GameStatus.ABANDONED }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp)
+    ) {
+
+        /* Заголовок истории партий и общая статистика. */
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            Text(
+                "История партий",
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
+                modifier = Modifier.weight(1f)
+            )
+
+            Button(
+                onClick = {
+                    onShowHistory()
+                }
+            ) {
+                Text("Обновить")
+            }
+        }
+
+        Spacer(
+            modifier = Modifier.height(8.dp)
+        )
+
+        Text(
+            "Всего партий: ${games.size} | " +
+                    "В процессе: $inProgressCount | " +
+                    "Завершено: $finishedCount | " +
+                    "Прервано: $abandonedCount"
+        )
+
+        Spacer(
+            modifier = Modifier.height(16.dp)
+        )
+
+        /**
+         * ---------------------------------------------------------------------------------------------
+         * Кнопка открытия активной партии.
+         *
+         * Показывается только тогда, когда в памяти приложения
+         * существует текущая игровая сессия.
+         * ---------------------------------------------------------------------------------------------
+         */
+        if (ctrl.game != null) {
+            Button(
+                onClick = onOpenCurrentGame
+            ) {
+                Text("Открыть текущую партию")
+            }
+
+            Spacer(
+                modifier = Modifier.height(16.dp)
+            )
+        }
+
+        /**
+         * ---------------------------------------------------------------------------------------------
+         * Заголовок таблицы истории.
+         * ---------------------------------------------------------------------------------------------
+         */
+        Row(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Игрок 1",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1.3f)
+            )
+
+            Text(
+                "Игрок 2",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1.3f)
+            )
+
+            Text(
+                "Статус",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+
+            Text(
+                "Победитель",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1.3f)
+            )
+
+            Text(
+                "Ходов",
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(0.7f)
+            )
+        }
+
+        HorizontalDivider()
+
+        Spacer(
+            modifier = Modifier.height(4.dp)
+        )
+
+        /**
+         * ---------------------------------------------------------------------------------------------
+         * Список всех партий.
+         *
+         * Не завершённые партии показываются как «В процессе»,
+         * завершённые - как «Завершена».
+         * ---------------------------------------------------------------------------------------------
+         */
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
+            Column(
+                modifier = Modifier.verticalScroll(
+                    rememberScrollState()
+                )
+            ) {
+                if (games.isEmpty()) {
+                    Text(
+                        "Партий пока нет.",
+                        modifier = Modifier.padding(
+                            vertical = 12.dp
+                        )
+                    )
+                } else {
+                    games.forEach { game ->
+                        val statusText =
+                            when (game.status) {
+                                GameStatus.FINISHED -> "Завершена"
+                                GameStatus.ABANDONED -> "Прервана"
+                                else -> "В процессе"
+                            }
+                        val winnerName =
+                            game.winner?.name ?: "—"
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    vertical = 8.dp
+                                ),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                game.player1.name,
+                                modifier = Modifier.weight(1.3f)
+                            )
+
+                            Text(
+                                game.player2.name,
+                                modifier = Modifier.weight(1.3f)
+                            )
+
+                            Text(
+                                statusText,
+                                modifier = Modifier.weight(1f),
+                                color =
+                                    if (game.status == GameStatus.FINISHED) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.secondary
+                                    }
+                            )
+
+                            Text(
+                                winnerName,
+                                modifier = Modifier.weight(1.3f)
+                            )
+
+                            Text(
+                                game.moves.size.toString(),
+                                modifier = Modifier.weight(0.7f)
+                            )
+                        }
+
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * =============================================================================================
  * Вкладка текущей партии.
  *
  * Отображает состояние активной игры:
  *
- * - ожидание расстановки кораблей;
  * - текущего игрока;
  * - ввод координаты выстрела;
  * - историю ходов;
@@ -452,7 +702,7 @@ fun NewGameTab(
  * принудительно вызывает перерисовку содержимого партии.
  *
  * @param ctrl контроллер GUI
- * @param onBack переход обратно к списку игроков
+ * @param onBack переход обратно к истории партий
  * =============================================================================================
  */
 @Composable
@@ -474,58 +724,70 @@ fun GameTab(
     val game = ctrl.game
 
     if (game == null) {
-
-        Text(
-            "Нет активной партии",
+        Column(
             modifier = Modifier.padding(16.dp)
-        )
+        ) {
+            Text(
+                "Нет активной партии"
+            )
+
+            Spacer(
+                modifier = Modifier.height(8.dp)
+            )
+
+            Button(
+                onClick = onBack
+            ) {
+                Text("Вернуться к истории")
+            }
+        }
 
         return
     }
 
-    /**
-     * key(revision) заставляет Compose пересоздать состояние
-     * содержимого при изменении партии.
+    /*
+     * Состояние внутри GameContent (введённая координата, текст ошибки)
+     * сохраняется между ходами; перерисовку запускает смена `revision`.
      */
-    key(revision) {
-
-        GameContent(
-            ctrl = ctrl,
-            game = game,
-            onRefresh = {
-                revision++
-            },
-            onBack = onBack
-        )
-    }
+    GameContent(
+        ctrl = ctrl,
+        game = game,
+        revision = revision,
+        onRefresh = {
+            revision++
+        },
+        onBack = onBack
+    )
 }
 
 /**
  * =============================================================================================
  * Содержимое вкладки текущей партии.
  *
- * Вынесено из [GameTab], чтобы обновление через `key(revision)`
- * не требовало использования ранних `return` внутри Compose-блока.
+ * Вынесено из [GameTab], чтобы ранний `return` при отсутствии партии
+ * не смешивался с отрисовкой самой партии.
  *
  * @param ctrl контроллер GUI
  * @param game текущая партия
+ * @param revision счётчик изменений партии: при его смене Compose перерисовывает
+ *                 содержимое, потому что не видит изменений внутри [Game]
  * @param onRefresh функция принудительного обновления интерфейса
- * @param onBack возврат к списку игроков
+ * @param onBack возврат к истории партий
  * =============================================================================================
  */
 @Composable
 private fun GameContent(
     ctrl: GuiController,
     game: Game,
+    @Suppress("UNUSED_PARAMETER") revision: Int,
     onRefresh: () -> Unit,
     onBack: () -> Unit
 ) {
 
-    /**
-     * Полноразмерный контейнер текущей партии.
-     */
+    /* Полноразмерный контейнер текущей партии. */
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
             .padding(16.dp)
     ) {
 
@@ -542,7 +804,6 @@ private fun GameContent(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-
                 Text(
                     "Победитель: ${game.winner?.name}",
                     fontSize = 24.sp,
@@ -553,11 +814,8 @@ private fun GameContent(
                     modifier = Modifier.height(16.dp)
                 )
 
-                /**
-                 * Вывод изменений рейтинга обоих игроков.
-                 */
+                /* Вывод изменений рейтинга обоих игроков. */
                 game.eloChanges?.forEach { (_, change) ->
-
                     Text(
                         "${change.player.name}: " +
                                 "${change.oldRating} → ${change.newRating} " +
@@ -571,61 +829,12 @@ private fun GameContent(
 
                 Button(
                     onClick = {
-
                         ctrl.finish()
                         onBack()
                     }
                 ) {
-                    Text("Вернуться к списку")
+                    Text("Вернуться к истории")
                 }
-            }
-
-            return
-        }
-
-        /**
-         * ---------------------------------------------------------------------------------------------
-         * Фаза расстановки кораблей.
-         *
-         * В GUI используется автоматическая корректная расстановка.
-         * ---------------------------------------------------------------------------------------------
-         */
-        if (
-            game.status == GameStatus.SETUP_P1 ||
-            game.status == GameStatus.SETUP_P2
-        ) {
-
-            val currentPlayer =
-                if (game.status == GameStatus.SETUP_P1) {
-                    game.player1
-                } else {
-                    game.player2
-                }
-
-            Text(
-                "Ожидание расстановки кораблей для ${currentPlayer.name}",
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(
-                modifier = Modifier.height(8.dp)
-            )
-
-            Button(
-                onClick = {
-
-                    val result =
-                        ctrl.placeShips(
-                            currentPlayer,
-                            RandomShipPlacer.generate()
-                        )
-
-                    if (result.isValid) {
-                        onRefresh()
-                    }
-                }
-            ) {
-                Text("Авторасставить корабли")
             }
 
             return
@@ -640,7 +849,6 @@ private fun GameContent(
          * ---------------------------------------------------------------------------------------------
          */
         val currentPlayer = game.currentTurn
-
         var coordText by remember {
             mutableStateOf("")
         }
@@ -649,21 +857,34 @@ private fun GameContent(
             mutableStateOf<String?>(null)
         }
 
-        Text(
-            "Ход: ${currentPlayer.name}",
-            fontWeight = FontWeight.Bold,
-            style = MaterialTheme.typography.titleMedium
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            Text(
+                "Ход: ${currentPlayer.name}",
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.weight(1f)
+            )
+
+            /* Прерывание партии: она останется в истории со статусом «Прервана». */
+            OutlinedButton(
+                onClick = {
+                    ctrl.finish()
+                    onBack()
+                }
+            ) {
+                Text("Прервать партию")
+            }
+        }
 
         Spacer(
             modifier = Modifier.height(8.dp)
         )
 
-        /**
-         * ---------------------------------------------------------------------------------------------
-         * Поле ввода координаты и кнопка выстрела.
-         * ---------------------------------------------------------------------------------------------
-         */
+        /* Поле ввода координаты и кнопка выстрела. */
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -671,7 +892,6 @@ private fun GameContent(
             OutlinedTextField(
                 value = coordText,
                 onValueChange = {
-
                     coordText = it
                     moveError = null
                 },
@@ -723,11 +943,8 @@ private fun GameContent(
             }
         }
 
-        /**
-         * Отображение ошибки выполнения хода.
-         */
+        /* Отображение ошибки выполнения хода. */
         moveError?.let {
-
             Text(
                 it,
                 color = MaterialTheme.colorScheme.error
@@ -769,7 +986,6 @@ private fun GameContent(
 
                     val icon =
                         when (move.result) {
-
                             ShotResult.MISS ->
                                 "· Промах"
 
