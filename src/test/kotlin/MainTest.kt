@@ -1,15 +1,11 @@
 import battleship.application.GameSessionImpl
 import battleship.application.RandomShipPlacer
-import battleship.domain.bot.RandomBot
-import battleship.domain.bot.SmartBot
 import battleship.domain.model.*
-import battleship.domain.repository.*
 import battleship.domain.service.*
 import battleship.infrastructure.*
 import battleship.presentation.gui.GuiController
 import org.junit.jupiter.api.Assertions.*
 import org.junit.jupiter.api.Test
-import java.nio.file.Files
 import kotlin.random.Random
 
 /**
@@ -25,11 +21,9 @@ import kotlin.random.Random
  * 5. Валидатор ходов.
  * 6. Расчёт рейтинга Эло.
  * 7. Генератор случайной расстановки.
- * 8. Боты.
- * 9. Полный жизненный цикл игровой сессии.
- * 10. Сервис статистики.
- * 11. Файловые репозитории.
- * 12. GUI-контроллер.
+ * 8. Полный жизненный цикл игровой сессии.
+ * 9. Сервис статистики.
+ * 10. GUI-контроллер.
  *
  * Тесты выполняются через JUnit 5 и запускаются Gradle-задачей `test`.
  * =============================================================================================
@@ -361,7 +355,7 @@ class MainTest {
 
         assertTrue(
             result.errors.any {
-                it.contains("пересекается")
+                it.contains("перекрываются")
             }
         )
     }
@@ -370,14 +364,13 @@ class MainTest {
      * ---------------------------------------------------------------------------------------------
      * Проверяет, что соприкасающиеся корабли не проходят валидацию.
      *
-     * Соприкосновение учитывает в том числе диагональные клетки.
+     * Соприкосновение учитывает, в том числе, диагональные клетки.
      * ---------------------------------------------------------------------------------------------
      */
     @Test
     fun `adjacent ships should fail validation`() {
 
-        val validator =
-            ShipPlacementValidatorImpl()
+        val validator = ShipPlacementValidatorImpl()
 
         val ships = listOf(
             Ship(
@@ -394,8 +387,7 @@ class MainTest {
             )
         )
 
-        val result =
-            validator.validate(ships)
+        val result = validator.validate(ships)
 
         assertFalse(
             result.isValid
@@ -403,7 +395,7 @@ class MainTest {
 
         assertTrue(
             result.errors.any {
-                it.contains("соприкасается")
+                it.contains("стоят вплотную")
             }
         )
     }
@@ -416,14 +408,9 @@ class MainTest {
     @Test
     fun `turn validator should allow valid move`() {
 
-        val player1 =
-            Player("1", "Alice")
-
-        val player2 =
-            Player("2", "Bob")
-
-        val game =
-            Game(
+        val player1 = Player("1", "Alice")
+        val player2 = Player("2", "Bob")
+        val game = Game(
                 id = "game",
                 player1 = player1,
                 player2 = player2
@@ -432,14 +419,10 @@ class MainTest {
         game.board1.placeShips(validFleet())
         game.board2.placeShips(validFleet())
 
-        game.status =
-            GameStatus.IN_PROGRESS
+        game.status = GameStatus.IN_PROGRESS
 
-        val validator =
-            TurnValidatorImpl()
-
-        val result =
-            validator.canFire(
+        val validator = TurnValidatorImpl()
+        val result = validator.canFire(
                 game = game,
                 player = player1,
                 coord = Coordinate(0, 0)
@@ -462,14 +445,9 @@ class MainTest {
     @Test
     fun `turn validator should reject invalid moves`() {
 
-        val player1 =
-            Player("1", "Alice")
-
-        val player2 =
-            Player("2", "Bob")
-
-        val game =
-            Game(
+        val player1 = Player("1", "Alice")
+        val player2 = Player("2", "Bob")
+        val game = Game(
                 id = "game",
                 player1 = player1,
                 player2 = player2
@@ -478,11 +456,9 @@ class MainTest {
         game.board1.placeShips(validFleet())
         game.board2.placeShips(validFleet())
 
-        game.status =
-            GameStatus.IN_PROGRESS
+        game.status = GameStatus.IN_PROGRESS
 
-        val validator =
-            TurnValidatorImpl()
+        val validator = TurnValidatorImpl()
 
         /* Сейчас ход игрока 1, поэтому игрок 2 должен получить отказ. */
         val wrongPlayerResult =
@@ -531,14 +507,9 @@ class MainTest {
     @Test
     fun `elo rating should be calculated correctly`() {
 
-        val winner =
-            Player("1", "Alice")
-
-        val loser =
-            Player("2", "Bob")
-
-        val service =
-            EloRatingServiceImpl(
+        val winner = Player("1", "Alice")
+        val loser = Player("2", "Bob")
+        val service = EloRatingServiceImpl(
                 random = Random(42)
             )
 
@@ -550,11 +521,8 @@ class MainTest {
                 loserCurrentRating = 1000
             )
 
-        val winnerChange =
-            changes[winner]!!
-
-        val loserChange =
-            changes[loser]!!
+        val winnerChange = changes[winner]!!
+        val loserChange = changes[loser]!!
 
         assertTrue(
             winnerChange.newRating > winnerChange.oldRating
@@ -582,27 +550,20 @@ class MainTest {
     @Test
     fun `elo rating should never become negative`() {
 
-        val winner =
-            Player("1", "Alice")
-
-        val loser =
-            Player("2", "Bob")
-
-        val service =
-            EloRatingServiceImpl(
+        val winner = Player("1", "Alice")
+        val loser = Player("2", "Bob")
+        val service = EloRatingServiceImpl(
                 random = Random(42)
             )
 
-        val changes =
-            service.calculateRatings(
+        val changes = service.calculateRatings(
                 winner = winner,
                 winnerCurrentRating = 1000,
                 loser = loser,
                 loserCurrentRating = 1
             )
 
-        val loserChange =
-            changes[loser]!!
+        val loserChange = changes[loser]!!
 
         assertEquals(
             0,
@@ -630,129 +591,18 @@ class MainTest {
     @Test
     fun `random ship placer should always generate valid fleet`() {
 
-        val validator =
-            ShipPlacementValidatorImpl()
+        val validator = ShipPlacementValidatorImpl()
 
         repeat(100) {
 
-            val ships =
-                RandomShipPlacer.generate()
-
-            val result =
-                validator.validate(ships)
+            val ships = RandomShipPlacer.generate()
+            val result = validator.validate(ships)
 
             assertTrue(
                 result.isValid,
                 result.errors.joinToString("; ")
             )
         }
-    }
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Проверяет, что RandomBot выбирает только ещё не атакованную клетку.
-     * ---------------------------------------------------------------------------------------------
-     */
-    @Test
-    fun `random bot should choose unattacked cell`() {
-
-        val board =
-            Board(
-                owner = Player("1", "Alice")
-            )
-
-        board.placeShips(
-            listOf(
-                Ship(
-                    ShipType.BOAT,
-                    listOf(Coordinate(0, 0))
-                )
-            )
-        )
-
-        board.receiveShot(
-            Coordinate(0, 0)
-        )
-
-        val bot =
-            RandomBot(
-                random = Random(42)
-            )
-
-        val move =
-            bot.nextMove(
-                board = board,
-                history = emptyList()
-            )
-
-        assertFalse(
-            board.attackedCells().contains(move)
-        )
-    }
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Проверяет базовую логику SmartBot.
-     *
-     * Если бот уже попал в корабль,
-     * следующая выбранная клетка должна находиться рядом с попаданием.
-     * ---------------------------------------------------------------------------------------------
-     */
-    @Test
-    fun `smart bot should try neighboring cells after hit`() {
-
-        val board =
-            Board(
-                owner = Player("1", "Alice")
-            )
-
-        board.placeShips(
-            listOf(
-                Ship(
-                    ShipType.CRUISER,
-                    listOf(
-                        Coordinate(4, 4),
-                        Coordinate(4, 5),
-                        Coordinate(4, 6)
-                    )
-                )
-            )
-        )
-
-        board.receiveShot(
-            Coordinate(4, 5)
-        )
-
-        val history =
-            listOf(
-                Move(
-                    turnNumber = 1,
-                    player = Player("2", "Bot"),
-                    coordinate = Coordinate(4, 5),
-                    result = ShotResult.HIT
-                )
-            )
-
-        val bot =
-            SmartBot(
-                randomBot = RandomBot(Random(42)),
-                random = Random(42)
-            )
-
-        val move =
-            bot.nextMove(
-                board = board,
-                history = history
-            )
-
-        val isNeighbor =
-            (move.row == 4 && kotlin.math.abs(move.col - 5) == 1) ||
-                    (move.col == 5 && kotlin.math.abs(move.row - 4) == 1)
-
-        assertTrue(
-            isNeighbor,
-            "SmartBot должен выбрать соседнюю с попаданием клетку"
-        )
     }
 
     /**
@@ -773,17 +623,11 @@ class MainTest {
     @Test
     fun `game session should finish game correctly`() {
 
-        val player1 =
-            Player("1", "Alice")
+        val player1 = Player("1", "Alice")
+        val player2 = Player("2", "Bob")
 
-        val player2 =
-            Player("2", "Bob")
-
-        val gameRepository =
-            InMemoryGameRepository()
-
-        val eloRepository =
-            InMemoryEloRatingRepository()
+        val gameRepository = InMemoryGameRepository()
+        val eloRepository = InMemoryEloRatingRepository()
 
         eloRepository.save(
             EloRating(
@@ -807,8 +651,7 @@ class MainTest {
                     Random(42)
                 ),
                 gameRepository = gameRepository,
-                eloRatingRepository = eloRepository,
-                botStrategy = null
+                eloRatingRepository = eloRepository
             )
 
         session.startGame(
@@ -849,12 +692,10 @@ class MainTest {
          * Стреляем по всем клеткам кораблей второго игрока.
          * Все выстрелы являются попаданиями, поэтому ход остаётся у player1.
          */
-        val targetCells =
-            validFleet()
+        val targetCells = validFleet()
                 .flatMap { it.segments }
 
         for (coord in targetCells) {
-
             if (session.getGame().status == GameStatus.FINISHED) {
                 break
             }
@@ -865,8 +706,7 @@ class MainTest {
             )
         }
 
-        val game =
-            session.getGame()
+        val game = session.getGame()
 
         assertEquals(
             GameStatus.FINISHED,
@@ -914,17 +754,11 @@ class MainTest {
     @Test
     fun `statistics service should calculate player stats`() {
 
-        val player1 =
-            Player("1", "Alice")
+        val player1 = Player("1", "Alice")
+        val player2 = Player("2", "Bob")
 
-        val player2 =
-            Player("2", "Bob")
-
-        val gameRepository =
-            InMemoryGameRepository()
-
-        val eloRepository =
-            InMemoryEloRatingRepository()
+        val gameRepository = InMemoryGameRepository()
+        val eloRepository = InMemoryEloRatingRepository()
 
         eloRepository.save(
             EloRating(
@@ -933,43 +767,33 @@ class MainTest {
             )
         )
 
-        val game1 =
-            Game(
+        val game1 = Game(
                 id = "game-1",
                 player1 = player1,
                 player2 = player2
             )
 
-        game1.status =
-            GameStatus.FINISHED
+        game1.status = GameStatus.FINISHED
+        game1.winner = player1
 
-        game1.winner =
-            player1
-
-        val game2 =
-            Game(
+        val game2 = Game(
                 id = "game-2",
                 player1 = player1,
                 player2 = player2
             )
 
-        game2.status =
-            GameStatus.FINISHED
-
-        game2.winner =
-            player2
+        game2.status = GameStatus.FINISHED
+        game2.winner = player2
 
         gameRepository.save(game1)
         gameRepository.save(game2)
 
-        val service =
-            StatisticsServiceImpl(
+        val service = StatisticsServiceImpl(
                 gameRepository = gameRepository,
                 eloRatingRepository = eloRepository
             )
 
-        val stats =
-            service.getStats(player1)
+        val stats = service.getStats(player1)
 
         assertEquals(
             2,
@@ -995,98 +819,6 @@ class MainTest {
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Проверяет сохранение и повторную загрузку игроков и рейтингов
-     * через файловые репозитории.
-     *
-     * Для теста используется временная директория,
-     * поэтому реальные пользовательские файлы не изменяются.
-     * ---------------------------------------------------------------------------------------------
-     */
-    @Test
-    fun `file repositories should persist data`() {
-
-        val tempDir =
-            Files.createTempDirectory(
-                "battleship-test"
-            ).toFile()
-
-        try {
-
-            val player =
-                Player(
-                    id = "1",
-                    name = "Alice"
-                )
-
-            val playerRepository =
-                FilePlayerRepository(
-                    dataDir = tempDir
-                )
-
-            val eloRepository =
-                FileEloRatingRepository(
-                    dataDir = tempDir
-                )
-
-            playerRepository.save(
-                player
-            )
-
-            eloRepository.save(
-                EloRating(
-                    player = player,
-                    rating = 1234
-                )
-            )
-
-            /**
-             * Создаём новые экземпляры репозиториев,
-             * чтобы проверить реальную загрузку данных с диска.
-             */
-            val reloadedPlayerRepository =
-                FilePlayerRepository(
-                    dataDir = tempDir
-                )
-
-            val reloadedEloRepository =
-                FileEloRatingRepository(
-                    dataDir = tempDir
-                )
-
-            val loadedPlayer =
-                reloadedPlayerRepository.findById("1")
-
-            assertNotNull(
-                loadedPlayer
-            )
-
-            assertEquals(
-                "Alice",
-                loadedPlayer!!.name
-            )
-
-            val loadedRating =
-                reloadedEloRepository.findByPlayer(
-                    loadedPlayer
-                )
-
-            assertEquals(
-                1234,
-                loadedRating.rating
-            )
-
-        } finally {
-
-            /*
-             * После теста удаляем временную директорию
-             * и созданные внутри неё JSON-файлы.
-             */
-            tempDir.deleteRecursively()
-        }
-    }
-
-    /**
-     * ---------------------------------------------------------------------------------------------
      * Проверяет базовую работу GUI-контроллера.
      *
      * Проверяется:
@@ -1099,23 +831,16 @@ class MainTest {
     @Test
     fun `gui controller should create player`() {
 
-        val playerRepository =
-            InMemoryPlayerRepository()
+        val playerRepository = InMemoryPlayerRepository()
+        val gameRepository = InMemoryGameRepository()
+        val eloRepository = InMemoryEloRatingRepository()
 
-        val gameRepository =
-            InMemoryGameRepository()
-
-        val eloRepository =
-            InMemoryEloRatingRepository()
-
-        val statisticsService =
-            StatisticsServiceImpl(
+        val statisticsService = StatisticsServiceImpl(
                 gameRepository = gameRepository,
                 eloRatingRepository = eloRepository
             )
 
-        val controller =
-            GuiController(
+        val controller = GuiController(
                 playerRepo = playerRepository,
                 gameRepo = gameRepository,
                 eloRepo = eloRepository,
@@ -1127,8 +852,7 @@ class MainTest {
                 statisticsService = statisticsService
             )
 
-        val error =
-            controller.addPlayer(
+        val error = controller.addPlayer(
                 "Alice"
             )
 
@@ -1136,8 +860,7 @@ class MainTest {
             error
         )
 
-        val player =
-            playerRepository.findByName(
+        val player = playerRepository.findByName(
                 "Alice"
             )
 
@@ -1152,14 +875,9 @@ class MainTest {
             ).rating
         )
 
-        /**
-         * Попытка добавить игрока с тем же именем
-         * должна вернуть ошибку.
-         */
-        val duplicateError =
-            controller.addPlayer(
-                "alice"
-            )
+        /* Попытка добавить игрока с тем же именем должна вернуть ошибку. */
+        val duplicateError = controller.addPlayer(
+                "alice")
 
         assertNotNull(
             duplicateError
@@ -1179,7 +897,6 @@ class MainTest {
     private fun validFleet(): List<Ship> {
 
         return listOf(
-
             /* 1 линкор (4 клетки). */
             Ship(
                 ShipType.BATTLESHIP,

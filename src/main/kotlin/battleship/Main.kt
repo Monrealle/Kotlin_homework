@@ -1,99 +1,73 @@
 package battleship
 
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberWindowState
-import battleship.domain.repository.*
-import battleship.domain.service.*
-import battleship.infrastructure.*
-import battleship.presentation.gui.AdminApp
-import battleship.presentation.gui.GuiController
+import battleship.domain.repository.EloRatingRepository
+import battleship.domain.repository.GameRepository
+import battleship.domain.repository.PlayerRepository
+import battleship.domain.service.EloRatingServiceImpl
+import battleship.domain.service.ShipPlacementValidatorImpl
+import battleship.domain.service.StatisticsServiceImpl
+import battleship.domain.service.TurnValidatorImpl
+import battleship.infrastructure.InMemoryEloRatingRepository
+import battleship.infrastructure.InMemoryGameRepository
+import battleship.infrastructure.InMemoryPlayerRepository
+import battleship.presentation.console.ConsoleApplication
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 
 /**
  * =============================================================================================
  * Точка входа приложения.
  *
- * Отвечает за сборку зависимостей приложения:
+ * Отвечает за сборку зависимостей консольного приложения:
  *
- * 1. Создаёт репозитории.
+ * 1. Создаёт in-memory репозитории.
  * 2. Создаёт Domain-сервисы.
- * 3. Создаёт GUI-контроллер.
- * 4. Запускает Compose Desktop приложение.
+ * 3. Передаёт зависимости в консольное приложение.
+ * 4. Запускает главный цикл консольного интерфейса.
+ *
+ * В hw3 консольная версия намеренно использует in-memory хранилище.
+ * GUI запускается отдельной точкой входа и использует JSON-файлы.
  * =============================================================================================
  */
 fun main() {
 
-    /* ─────────────────────────────────────────────────────────────────────────
-       Infrastructure
-       ──────────────────────────────────────────────────────────────────────── */
-
     /**
-     * Репозиторий игроков с сохранением в JSON-файл.
-     */
-    val playerRepo = FilePlayerRepository()
-
-    /**
-     * Временный репозиторий партий в оперативной памяти.
+     * ---------------------------------------------------------------------------------------------
+     * In-memory репозитории.
      *
-     * В дальнейшем может быть заменён на SQLite-реализацию
-     * без изменения остальных слоёв.
+     * Все данные игроков, партий и рейтингов хранятся
+     * в оперативной памяти в течение одного запуска приложения.
+     * ---------------------------------------------------------------------------------------------
      */
-    val gameRepo = InMemoryGameRepository()
+    val playerRepository: PlayerRepository = InMemoryPlayerRepository()
+    val gameRepository: GameRepository = InMemoryGameRepository()
+    val eloRatingRepository: EloRatingRepository = InMemoryEloRatingRepository()
 
     /**
-     * Репозиторий рейтингов Эло с сохранением в JSON-файл.
+     * ---------------------------------------------------------------------------------------------
+     * Domain services.
+     * ---------------------------------------------------------------------------------------------
      */
-    val eloRepo = FileEloRatingRepository()
+    val placementValidator = ShipPlacementValidatorImpl()
+    val turnValidator = TurnValidatorImpl()
+    val eloService = EloRatingServiceImpl()
+    val statisticsService = StatisticsServiceImpl(gameRepository, eloRatingRepository)
 
-    /* ─────────────────────────────────────────────────────────────────────────
-       Domain services
-       ──────────────────────────────────────────────────────────────────────── */
-
-    val placementValidator =
-        ShipPlacementValidatorImpl()
-
-    val turnValidator =
-        TurnValidatorImpl()
-
-    val eloService =
-        EloRatingServiceImpl()
-
-    val statisticsService =
-        StatisticsServiceImpl(
-            gameRepository = gameRepo,
-            eloRatingRepository = eloRepo
-        )
-
-    /* ─────────────────────────────────────────────────────────────────────────
-       GUI controller
-       ──────────────────────────────────────────────────────────────────────── */
-
-    val ctrl = GuiController(
-        playerRepo = playerRepo,
-        gameRepo = gameRepo,
-        eloRepo = eloRepo,
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Запуск консольного приложения администратора.
+     * ---------------------------------------------------------------------------------------------
+     */
+    ConsoleApplication(
+        input = BufferedReader(InputStreamReader(System.`in`, Charsets.UTF_8)),
+        output = OutputStreamWriter(System.out, Charsets.UTF_8),
+        playerRepository = playerRepository,
+        gameRepository = gameRepository,
+        eloRatingRepository = eloRatingRepository,
         placementValidator = placementValidator,
         turnValidator = turnValidator,
         eloService = eloService,
         statisticsService = statisticsService
-    )
-
-    /* ─────────────────────────────────────────────────────────────────────────
-       Запуск Compose Desktop окна
-       ───────────────────────────────────f───────────────────────────────────── */
-
-    application {
-
-        Window(
-            onCloseRequest = ::exitApplication,
-            title = "Администратор Морского боя",
-            state = rememberWindowState(
-                width = 800.dp,
-                height = 600.dp
-            )
-        ) {
-            AdminApp(ctrl)
-        }
-    }
+    ).run()
 }

@@ -45,3 +45,5 @@ bin/
 
 ### Mac OS ###
 .DS_Store
+# Local GUI JSON data
+/data/*.json
