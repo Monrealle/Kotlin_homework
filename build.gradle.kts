@@ -1,47 +1,89 @@
-import org.jetbrains.compose.desktop.application.dsl.TargetFormat
-
 plugins {
-    kotlin("jvm") version "1.9.22"
-    id("org.jetbrains.compose") version "1.6.0"
+    kotlin("jvm") version "2.3.21"
+    id("org.jetbrains.compose") version "1.11.0"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.21"
 }
 
 group = "battleship"
 version = "1.0.0"
 
 repositories {
-    mavenCentral()
-    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
     google()
+    mavenCentral()
 }
 
 dependencies {
+    implementation(kotlin("stdlib"))
     implementation(compose.desktop.currentOs)
-    implementation(compose.material3)
+    implementation("org.jetbrains.compose.material3:material3:1.9.0")
     implementation("org.xerial:sqlite-jdbc:3.46.1.0")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.junit.jupiter:junit-jupiter:5.10.0")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.12.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+kotlin {
+    jvmToolchain(17)
 }
 
 /**
  * =============================================================================================
- * Настройка запуска тестов.
+ * Настройка GUI-приложения.
  *
- * Используется JUnit Platform для выполнения unit-тестов.
+ * Compose Desktop автоматически создаёт задачу `run`.
+ * =============================================================================================
+ */
+compose.desktop {
+    application {
+        mainClass = "battleship.presentation.gui.GuiMainKt"
+
+        nativeDistributions {
+            packageName = "battleship-assistant"
+            packageVersion = project.version.toString()
+        }
+    }
+}
+
+/**
+ * =============================================================================================
+ * Запуск консольной версии приложения.
+ *
+ * Консольная версия использует ту же SQLite-базу данных, что и GUI.
+ * =============================================================================================
+ */
+tasks.register<JavaExec>("console") {
+    group = "application"
+    description = "Запускает консольную версию приложения"
+
+    dependsOn(tasks.named("classes"))
+
+    classpath = sourceSets["main"].runtimeClasspath
+    mainClass.set("battleship.MainKt")
+
+    standardInput = System.`in`
+}
+
+/**
+ * =============================================================================================
+ * Настройка тестов.
  * =============================================================================================
  */
 tasks.test {
     useJUnitPlatform()
 }
 
-compose.desktop {
-    application {
-        mainClass = "battleship.MainKt"
-        nativeDistributions {
-            targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "BattleshipAdmin"
-            packageVersion = "1.0.0"
-        }
+/**
+ * =============================================================================================
+ * Настройка JAR.
+ * =============================================================================================
+ */
+tasks.jar {
+    archiveFileName.set("battleship-assistant.jar")
+
+    manifest {
+        attributes["Main-Class"] = "battleship.presentation.gui.GuiMainKt"
     }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
