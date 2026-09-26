@@ -1,132 +1,135 @@
 # Десктоп приложение администрирования игры «Морской бой»
-Объектно-ориентированное программирование, 1 курс, Технологии программирования,Математико-механический факультет, СПбГУ.
 
-## Описание
-Администратор партий классического «Морского боя»: запись и валидация ходов, расчёт рейтинга Эло, сохранение истории игр, поддержка игры против бота.
+Объектно-ориентированное программирование, Технологии программирования,
+Математико-механический факультет, СПбГУ.
 
-## Зависимости
-- **Язык:** Kotlin 2.3+
-- **Система сборки:** Gradle (wrapper включён)
-- **Тестирование:** (в будущем)
-- **GUI:** (в будущем)
-- **База данных:** (в будущем)
+## Сборка и запуск
 
-## Сборка
-1. Клонируйте репозиторий:
-    ```
-    bash
-    git clone https://github.com/ТВОЙ_ЛОГИН/battleship-assistant.git
-    cd battleship-assistant
-    ```
+Используется Gradle Wrapper, поэтому глобальный Gradle устанавливать не нужно.
 
-2. Запустите сборку:
-    ```
-    bash
-    ./gradlew build
-    Собранный JAR появится в build/libs/.
-    ```
+```bash
+./gradlew clean build
+```
 
-3. Для запуска:
-    ```
-    bash
-    java -jar build/libs/battleship-assistant.jar
-    ```
+Для запуска консольного интерфейса:
+
+```bash
+./gradlew run
+```
+
+Также собирается самостоятельный JAR:
+
+```bash
+./gradlew jar
+java -jar build/libs/battleship-assistant.jar
+```
+
+Проверка тестов отдельно:
+
+```bash
+./gradlew test
+```
+
+## Сценарий работы
+
+1. В меню `Игроки` добавьте минимум двух игроков.
+2. Выберите `Создать и провести партию`.
+3. Выберите первого и второго игрока.
+4. Для каждого игрока введите ровно 10 кораблей в одной строке, разделяя их `;`.
+5. После принятия двух расстановок начнётся ввод ходов.
+6. При `HIT`/`SUNK` тот же игрок продолжает ход; после `MISS` ход переходит сопернику.
+7. После победы приложение сразу печатает полный административный отчёт и возвращает управление в главное меню.
+8. Пункт `История партий` позволяет снова вывести отчёты всех созданных партий.
+
+## Формат ручной расстановки
+
+Длинный корабль задаётся началом и концом:
+
+```text
+A1-A4
+```
+
+Одноклеточный корабль задаётся одной координатой:
+
+```text
+J10
+```
+
+Полный пример корректного флота:
+
+```text
+A1-A4; C1-C3; E1-E3; G1-G2; I1-I2; G4-G5; A7; C7; E7; G7
+```
+
+Парсер принимает только координаты `A1`…`J10`, а валидатор дополнительно проверяет:
+
+- 1 линкор;
+- 2 крейсера;
+- 3 эсминца;
+- 4 катера;
+- прямолинейность и непрерывность каждого корабля;
+- отсутствие пересечений;
+- отсутствие соприкосновений, включая диагонали.
 
 ## Архитектура
 
-Приложение построено по многослойной архитектуре с чёткими зонами ответственности:
+Проект разделён на четыре логические зоны:
 
-- **Domain** – модели игры, правила валидации, стратегии бота, расчёт рейтинга.
-- **Application** – координатор игры `GameSession`, принимающий ходы и управляющий состоянием.
-- **Infrastructure** – репозитории для сохранения и загрузки партий.
-- **Presentation** – GUI (в будущем).
+```text
+Presentation (console)
+        ↓
+Application (GameSession)
+        ↓
+Domain (Game, Board, Ship, Player, валидаторы, Elo, статистика)
+        ↑
+Repository contracts (domain.repository)
+        ↑
+Infrastructure (in-memory implementations)
+```
 
-### Основные интерфейсы и классы
+`Domain` и `Application` не зависят от конкретного способа хранения. Контракты репозиториев
+находятся в `domain/repository`, реализации — в `infrastructure`.
 
-#### Игрок и рейтинг
-- `Player` – `id: String`, `name: String` (имена вводятся перед партией).
-- `EloRating` – текущий рейтинг игрока, привязан к `Player` (начальный – 1000).
-- `EloRatingService` – интерфейс расчёта нового рейтинга; реализация `EloRatingServiceImpl` использует случайную дельту 25–33.
-- `EloChange` – фиксирует старый рейтинг, новый и дельту для конкретного игрока.
+## Структура
 
-#### Игровые сущности
-- `Coordinate(row, col)` – координаты клетки поля 10×10.
-- `ShipType` – перечисление типов кораблей: BATTLESHIP (4), CRUISER (3), DESTROYER (2), BOAT (1).
-- `Ship` – тип корабля, список сегментов (`List<Coordinate>`), метод `isSunk()`.
-- `Board` – сетка 10×10 из состояний ячеек (`CellState`), список кораблей. Методы: `receiveShot()`, `allShipsSunk()`. Валидация расстановки делегируется `ShipPlacementValidator`.
-- `CellState` – EMPTY, SHIP, HIT, MISS.
-- `ShotResult` – MISS, HIT, SUNK, WIN.
-- `Move` – номер хода, игрок, координата, результат.
+```text
+src/main/kotlin/battleship/
+├── Main.kt
+├── application/
+│   ├── GameSession.kt
+│   └── GameSessionImpl.kt
+├── domain/
+│   ├── model/
+│   │   ├── Board.kt
+│   │   ├── Coordinate.kt
+│   │   ├── Enums.kt
+│   │   ├── Game.kt
+│   │   ├── Player.kt
+│   │   ├── Ship.kt
+│   │   ├── ShipType.kt
+│   │   └── ValueObjects.kt
+│   ├── repository/
+│   │   └── Repositories.kt
+│   └── service/
+│       ├── EloRatingService.kt
+│       ├── EloRatingServiceImpl.kt
+│       ├── ShipPlacementValidator.kt
+│       ├── StatisticsService.kt
+│       └── TurnValidator.kt
+├── infrastructure/
+│   └── Repositories.kt
+└── presentation/
+    └── console/
+        ├── ConsoleApplication.kt
+        ├── GameHistoryFormatter.kt
+        └── PlacementParser.kt
 
-#### Игровая сессия
-- `Game` – идентификатор, два игрока (`player1`, `player2`), два поля, текущий ход, победитель, статус (`SETUP_P1`, `SETUP_P2`, `IN_PROGRESS`, `FINISHED`), лог всех ходов, изменения Эло.
-- `GameSession` – основной интерфейс: старт игры, расстановка кораблей (возвращает `ValidationResult`), ход, получение состояния.
-- `GameSessionImpl` – реализация; использует `ShipPlacementValidator`, `TurnValidator`, `EloRatingService`, `GameRepository` и опциональную стратегию бота `MoveStrategy`.
+test/kotlin/
+└── MainTest.kt
 
-#### Валидаторы
-- `ShipPlacementValidator` – проверяет корректность расстановки кораблей на доске, возвращает `ValidationResult`.
-- `ValidationResult` – результат валидации: флаг `isValid` и список ошибок `errors`.
-- `TurnValidator` – проверяет, может ли игрок сделать выстрел в текущий момент (очерёдность, повтор координаты).
-
-#### Бот
-- `MoveStrategy` – интерфейс стратегии бота: `nextMove(board, history): Coordinate`.
-- `RandomBot` – случайный выстрел по ещё не атакованным клеткам.
-- `SmartBot` – при попадании переходит в режим «добивания»: обстреливает соседние клетки. Если незаконченных попаданий нет — делегирует ход `RandomBot` (композиция, не наследование).
-
-#### Хранение (in-memory на старте)
-- `GameRepository` – сохранение и получение объектов `Game`.
-- `PlayerRepository` – сохранение и поиск игроков по `id` и имени.
-
-#### Статистика
-- `StatisticsService` – собирает статистику по игроку, используя `GameRepository` и `PlayerRepository`.
-- `PlayerStats` – количество игр, побед, винрейт, текущий Эло.
-
-## Структура проекта
-    ```
-    Kotlin_homework
-    ├── .github/
-    │   └── workflows/
-    │       └── ci.yml                     - Конфигурация CI (сборка, тесты)
-    ├── gradle/
-    │   └── wrapper/
-    │       ├── gradle-wrapper.jar         - Исполняемый файл Gradle Wrapper
-    │       └── gradle-wrapper.properties  - Версия и параметры Gradle Wrapper
-    ├── src/
-    │   ├── main/
-    │   │   └── kotlin/
-    │   │       └── battleship/
-    │   │           ├── Main.kt                           - Точка входа
-    │   │           ├── application/
-    │   │           │   ├── GameSession.kt                - Интерфейс координатора сессии
-    │   │           │   └── GameSessionImpl.kt            - Реализация сессии
-    │   │           ├── domain/
-    │   │           │   ├── bot/
-    │   │           │   │   └── Bots.kt                   - Стратегии бота
-    │   │           │   ├── model/
-    │   │           │   │   ├── Board.kt                  - Игровое поле 10x10
-    │   │           │   │   ├── Coordinate.kt             - Координата клетки
-    │   │           │   │   ├── Enums.kt                  - Перечисления
-    │   │           │   │   ├── Game.kt                   - Агрегат партии
-    │   │           │   │   ├── Player.kt                 - Игрок
-    │   │           │   │   ├── Ship.kt                   - Корабль
-    │   │           │   │   ├── ShipType.kt               - Типы кораблей
-    │   │           │   │   └── ValueObjects.kt           - Объекты-значения
-    │   │           │   └── service/
-    │   │           │       ├── EloRatingService.kt       - Расчёт рейтинга Эло
-    │   │           │       ├── EloRatingServiceImpl.kt   - Реализация
-    │   │           │       ├── ShipPlacementValidator.kt - Интерфейс расстановки кораблей
-    │   │           │       ├── StatisticsService.kt      - Интерфейс сбора статистики игрока
-    │   │           │       └── TurnValidator.kt          - Интерфейс проверки возможности хода
-    │   │           └── infrastructure/
-    │   │               └── Repositories.kt               - Интерфейсы реализации репозиториев
-    │   └── test/
-    │       └── kotlin/
-    │           └── (пусто)                  - Место для будущих юнит-тестов
-    ├── .gitignore                           - Игнорируемые Git файлы
-    ├── LICENSE                              - Лицензия проекта
-    ├── README.md                            - Описание проекта, инструкции по сборке и архитектуре
-    ├── build.gradle.kts                     - Конфигурация сборки Gradle
-    ├── settings.gradle.kts                  - Имя проекта и настройки Gradle
-    ├── gradle.properties                    - Глобальные свойства Gradle
-    └── gradlew                              - Запуск Gradle Wrapper на Linux/macOS
-    ```
+docs/
+├── architecture.png
+├── domain.png
+├── sequence.png
+└── README.md
+```

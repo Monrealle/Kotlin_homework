@@ -1,39 +1,73 @@
 package battleship
 
-import battleship.domain.service.*
-import battleship.infrastructure.*
+import battleship.domain.repository.EloRatingRepository
+import battleship.domain.repository.GameRepository
+import battleship.domain.repository.PlayerRepository
+import battleship.domain.service.EloRatingServiceImpl
+import battleship.domain.service.ShipPlacementValidatorImpl
+import battleship.domain.service.StatisticsServiceImpl
+import battleship.domain.service.TurnValidatorImpl
+import battleship.infrastructure.InMemoryEloRatingRepository
+import battleship.infrastructure.InMemoryGameRepository
+import battleship.infrastructure.InMemoryPlayerRepository
+import battleship.presentation.console.ConsoleApplication
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 
 /**
  * =============================================================================================
- * Точка входа в приложение «Морской бой - Администратор».
+ * Точка входа приложения.
  *
- * Назначение:
- * Выполняет роль композиционного корня (composition root): создаёт
- * все необходимые реализации репозиториев, сервисов и валидаторов.
+ * Отвечает за сборку зависимостей консольного приложения:
  *
- * Порядок инициализации:
- * 1. In-memory репозитории - [InMemoryPlayerRepository], [InMemoryGameRepository],
- *    [InMemoryEloRatingRepository]. Хранят данные в памяти (без БД).
- * 2. Доменные сервисы - [ShipPlacementValidatorImpl], [TurnValidatorImpl],
- *    [EloRatingServiceImpl], [StatisticsServiceImpl]. Реализуют бизнес-логику.
+ * 1. Создаёт in-memory репозитории.
+ * 2. Создаёт Domain-сервисы.
+ * 3. Передаёт зависимости в консольное приложение.
+ * 4. Запускает главный цикл консольного интерфейса.
  *
- * Запуск:
- * ./gradlew build
- * java -jar build/libs/battleship-assistant.jar
+ * В hw2 данные хранятся только в памяти и пропадают после завершения программы.
+ * База данных и GUI появятся на следующих этапах проекта.
  * =============================================================================================
  */
 fun main() {
-    /* ----- Инфраструктура: in-memory хранилища ----- */
-    val playerRepo = InMemoryPlayerRepository()
-    val gameRepo = InMemoryGameRepository()
-    val eloRepo = InMemoryEloRatingRepository()
 
-    /* ----- Доменные сервисы ----- */
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * In-memory репозитории.
+     *
+     * Все данные игроков, партий и рейтингов хранятся
+     * в оперативной памяти в течение одного запуска приложения.
+     * ---------------------------------------------------------------------------------------------
+     */
+    val playerRepository: PlayerRepository = InMemoryPlayerRepository()
+    val gameRepository: GameRepository = InMemoryGameRepository()
+    val eloRatingRepository: EloRatingRepository = InMemoryEloRatingRepository()
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Domain services.
+     * ---------------------------------------------------------------------------------------------
+     */
     val placementValidator = ShipPlacementValidatorImpl()
     val turnValidator = TurnValidatorImpl()
     val eloService = EloRatingServiceImpl()
-    val statsService = StatisticsServiceImpl(gameRepo, playerRepo, eloRepo)
+    val statisticsService = StatisticsServiceImpl(gameRepository, eloRatingRepository)
 
-    println("Морской бой - Администратор готов к запуску.")
-    /* Здесь будет создание и запуск графического интерфейса */
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Запуск консольного приложения администратора.
+     * ---------------------------------------------------------------------------------------------
+     */
+    ConsoleApplication(
+        input = BufferedReader(InputStreamReader(System.`in`, Charsets.UTF_8)),
+        output = OutputStreamWriter(System.out, Charsets.UTF_8),
+        playerRepository = playerRepository,
+        gameRepository = gameRepository,
+        eloRatingRepository = eloRatingRepository,
+        placementValidator = placementValidator,
+        turnValidator = turnValidator,
+        eloService = eloService,
+        statisticsService = statisticsService
+    ).run()
 }

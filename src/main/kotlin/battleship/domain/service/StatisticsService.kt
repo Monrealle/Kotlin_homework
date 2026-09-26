@@ -1,15 +1,17 @@
 package battleship.domain.service
 
-import battleship.domain.model.*
-import battleship.infrastructure.EloRatingRepository
-import battleship.infrastructure.GameRepository
-import battleship.infrastructure.PlayerRepository
+import battleship.domain.model.GameStatus
+import battleship.domain.model.Player
+import battleship.domain.model.PlayerStats
+import battleship.domain.repository.EloRatingRepository
+import battleship.domain.repository.GameRepository
 
 /**
  * =============================================================================================
  * Сервис статистики игрока.
  *
- * Определяет контракт для сбора и агрегации статистики по всем завершённым партиям игрока.
+ * Определяет контракт для сбора статистики по завершённым партиям
+ * и получения текущего рейтинга игрока.
  *
  * @see StatisticsServiceImpl
  * =============================================================================================
@@ -18,10 +20,10 @@ interface StatisticsService {
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Собрать статистику по указанному игроку.
+     * Собирает статистику указанного игрока.
      *
      * @param player игрок, для которого собирается статистика
-     * @return [PlayerStats] с количеством игр, побед, винрейтом и текущим рейтингом
+     * @return [PlayerStats] с количеством партий, побед, винрейтом и рейтингом
      * ---------------------------------------------------------------------------------------------
      */
     fun getStats(player: Player): PlayerStats
@@ -31,48 +33,39 @@ interface StatisticsService {
  * =============================================================================================
  * Реализация сервиса статистики.
  *
- * Алгоритм:
- * 1. Находит все партии игрока через [GameRepository].
- * 2. Фильтрует только завершённые (`FINISHED`).
- * 3. Считает победы и винрейт.
- * 4. Запрашивает текущий рейтинг через [EloRatingRepository].
- *
- * Зависимости:
- * - [GameRepository] - для поиска партий.
- * - [PlayerRepository] - для проверок существования игрока.
- * - [EloRatingRepository] - для получения актуального рейтинга.
- *
- * @param gameRepository репозиторий игр
- * @param playerRepository репозиторий игроков (пока не используется, оставлен для расширения)
- * @param eloRatingRepository репозиторий рейтингов
+ * Учитываются только завершённые партии.
+ * Винрейт вычисляется как доля побед от общего количества завершённых игр.
  * =============================================================================================
  */
 class StatisticsServiceImpl(
     private val gameRepository: GameRepository,
-    @Suppress("unused") private val playerRepository: PlayerRepository,
     private val eloRatingRepository: EloRatingRepository
 ) : StatisticsService {
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Собирает и возвращает статистику игрока.
-     *
-     * @param player игрок, для которого собирается статистика
-     * @return [PlayerStats] с агрегированными показателями
+     * Собирает и возвращает статистику указанного игрока.
      * ---------------------------------------------------------------------------------------------
      */
     override fun getStats(player: Player): PlayerStats {
-        val allGames = gameRepository.findByPlayer(player)
-        val finished = allGames.filter { it.status == GameStatus.FINISHED }
-        val wins = finished.count { it.winner == player }
-        val winRate = if (finished.isEmpty()) 0.0 else wins.toDouble() / finished.size
+        /* Получаем завершённые партии указанного игрока. */
+        val finishedGames = gameRepository.findByPlayer(player)
+            .filter { it.status == GameStatus.FINISHED }
+
+        /* Подсчитываем количество побед игрока. */
+        val wins = finishedGames.count { it.winner == player }
+
+        /* Для игрока без игр винрейт равен 0.0. */
+        val winRate = if (finishedGames.isEmpty()) 0.0 else wins.toDouble() / finishedGames.size
+
+        /* Получаем текущий рейтинг Эло. */
         val currentElo = eloRatingRepository.findByPlayer(player).rating
 
         return PlayerStats(
-            gamesPlayed = finished.size, /* Сколько завершённых партий сыграно */
-            wins = wins,                 /* Сколько из них выиграно            */
-            winRate = winRate,           /* Доля побед (от 0.0 до 1.0)         */
-            currentElo = currentElo      /* Текущий рейтинг Эло                */
+            gamesPlayed = finishedGames.size,
+            wins = wins,
+            winRate = winRate,
+            currentElo = currentElo
         )
     }
 }

@@ -13,7 +13,7 @@ package battleship.domain.model
  *
  * Использование:
  * Используется для адресации клеток на [Board], описания сегментов [Ship],
- * а также в ботах для перебора соседних клеток.
+ * а также в сервисах и консольном интерфейсе для работы с клетками поля.
  *
  * @param row строка (0 = A, 9 = J)
  * @param col столбец (0 = 1, 9 = 10)
@@ -44,8 +44,8 @@ data class Coordinate(val row: Int, val col: Int) {
          * Безопасное создание координаты.
          *
          * Возвращает `null`, если координата вне поля.
-         * Используется в алгоритмах бота ([SmartBot], [RandomShipPlacer])
-         * для фильтрации граничных клеток при переборе соседей.
+         * Используется для безопасного перебора граничных клеток
+         * при работе с граничными клетками игрового поля.
          *
          * @param row строка
          * @param col столбец
@@ -67,9 +67,10 @@ data class Coordinate(val row: Int, val col: Int) {
          */
         fun fromString(input: String): Coordinate? {
             val s = input.trim().uppercase()
-            if (s.length !in 2..3) return null
+            if (!s.matches(Regex("[A-J](10|[1-9])"))) return null
+
             val row = s[0] - 'A'
-            val col = s.substring(1).toIntOrNull()?.minus(1) ?: return null
+            val col = s.substring(1).toInt() - 1
             return ofOrNull(row, col)
         }
     }

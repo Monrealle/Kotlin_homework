@@ -38,7 +38,6 @@ enum class ShotResult { MISS, HIT, SUNK, WIN }
  *
  * Переходы:
  * SETUP_P1 -> SETUP_P2 -> IN_PROGRESS -> FINISHED
- * SETUP_P1 -> IN_PROGRESS  (если второй игрок — бот)
  *
  * ## Значения
  * - `SETUP_P1` - ожидание расстановки кораблей первого игрока.
