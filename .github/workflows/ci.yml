@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Build and test
+        run: ./gradlew clean check
+
+      - name: Build executable JAR
+        run: ./gradlew jar
+
+      - name: Upload JAR
+        uses: actions/upload-artifact@v4
+        with:
+          name: battleship-assistant
+          path: build/libs/battleship-assistant.jar
