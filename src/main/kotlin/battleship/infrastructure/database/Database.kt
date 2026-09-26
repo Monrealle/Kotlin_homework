@@ -6,23 +6,19 @@ import java.sql.DriverManager
 
 /**
  * =============================================================================================
- * SQLite-база данных приложения администратора «Морской бой».
+ * SQLite-база данных приложения «Морской бой».
  *
  * База используется для долговременного хранения:
  *
  * - игроков;
  * - рейтингов Эло;
  * - истории партий;
- * - ходов партий.
+ * - ходов партий;
+ * - расстановок кораблей;
+ * - состояния клеток игровых досок;
+ * - изменений рейтинга после завершения партии.
  *
  * Файл базы данных хранится в ~/.battleship/battleship.db.
- *
- * Структура базы:
- *
- * players -> информация об игроках;
- * ratings -> текущие рейтинги Эло;
- * games -> история партий;
- * moves -> история ходов.
  * =============================================================================================
  */
 object Database {
@@ -30,6 +26,9 @@ object Database {
     /**
      * ---------------------------------------------------------------------------------------------
      * Файл локальной базы данных.
+     *
+     * Значение можно временно заменить в тестах через [useFile],
+     * чтобы не изменять реальную базу пользователя.
      * ---------------------------------------------------------------------------------------------
      */
     private var databaseFile =
@@ -43,8 +42,7 @@ object Database {
      * Переключает базу данных на другой файл.
      *
      * Используется в тестах, чтобы не трогать реальную базу пользователя.
-     * Таблицы в новом файле создаются при следующем вызове [init]
-     * (репозитории вызывают его в своих конструкторах).
+     * Таблицы в новом файле создаются при следующем вызове [init].
      *
      * @param file файл базы данных
      * ---------------------------------------------------------------------------------------------
@@ -170,7 +168,139 @@ object Database {
 
             /**
              * ---------------------------------------------------------------------------------------------
-             * Индексы для ускорения поиска партий и ходов.
+             * Таблица игровых досок.
+             *
+             * Для одной партии существует две записи: board_number = 1 и board_number = 2.
+             * ---------------------------------------------------------------------------------------------
+             */
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TABLE IF NOT EXISTS game_boards (
+                        game_id     TEXT NOT NULL,
+                        board_number INTEGER NOT NULL,
+                        owner_id    TEXT NOT NULL,
+
+                        PRIMARY KEY (game_id, board_number),
+
+                        FOREIGN KEY (game_id)
+                            REFERENCES games(id)
+                            ON DELETE CASCADE,
+
+                        FOREIGN KEY (owner_id)
+                            REFERENCES players(id)
+                    )
+                    """.trimIndent()
+                )
+            }
+
+            /**
+             * ---------------------------------------------------------------------------------------------
+             * Таблица кораблей на игровых досках.
+             * ---------------------------------------------------------------------------------------------
+             */
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TABLE IF NOT EXISTS ships (
+                        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                        game_id      TEXT NOT NULL,
+                        board_number INTEGER NOT NULL,
+                        ship_number  INTEGER NOT NULL,
+                        type         TEXT NOT NULL,
+
+                        UNIQUE (game_id, board_number, ship_number),
+
+                        FOREIGN KEY (game_id, board_number)
+                            REFERENCES game_boards(game_id, board_number)
+                            ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+            }
+
+            /**
+             * ---------------------------------------------------------------------------------------------
+             * Таблица сегментов кораблей.
+             * ---------------------------------------------------------------------------------------------
+             */
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TABLE IF NOT EXISTS ship_segments (
+                        ship_id INTEGER NOT NULL,
+                        row     INTEGER NOT NULL,
+                        col     INTEGER NOT NULL,
+
+                        PRIMARY KEY (ship_id, row, col),
+
+                        FOREIGN KEY (ship_id)
+                            REFERENCES ships(id)
+                            ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+            }
+
+            /**
+             * ---------------------------------------------------------------------------------------------
+             * Таблица состояния клеток досок.
+             *
+             * EMPTY-клетки в базу не записываются. При восстановлении они создаются
+             * автоматически конструктором [battleship.domain.model.Board].
+             * ---------------------------------------------------------------------------------------------
+             */
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TABLE IF NOT EXISTS board_cells (
+                        game_id     TEXT NOT NULL,
+                        board_number INTEGER NOT NULL,
+                        row         INTEGER NOT NULL,
+                        col         INTEGER NOT NULL,
+                        state       TEXT NOT NULL,
+
+                        PRIMARY KEY (game_id, board_number, row, col),
+
+                        FOREIGN KEY (game_id, board_number)
+                            REFERENCES game_boards(game_id, board_number)
+                            ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+            }
+
+            /**
+             * ---------------------------------------------------------------------------------------------
+             * Таблица изменений рейтингов по итогам партии.
+             * ---------------------------------------------------------------------------------------------
+             */
+            connection.createStatement().use { statement ->
+                statement.executeUpdate(
+                    """
+                    CREATE TABLE IF NOT EXISTS elo_changes (
+                        game_id    TEXT NOT NULL,
+                        player_id  TEXT NOT NULL,
+                        old_rating INTEGER NOT NULL,
+                        new_rating INTEGER NOT NULL,
+                        delta      INTEGER NOT NULL,
+
+                        PRIMARY KEY (game_id, player_id),
+
+                        FOREIGN KEY (game_id)
+                            REFERENCES games(id)
+                            ON DELETE CASCADE,
+
+                        FOREIGN KEY (player_id)
+                            REFERENCES players(id)
+                    )
+                    """.trimIndent()
+                )
+            }
+
+            /**
+             * ---------------------------------------------------------------------------------------------
+             * Индексы для ускорения поиска партий, ходов и данных досок.
              * ---------------------------------------------------------------------------------------------
              */
             connection.createStatement().use { statement ->
@@ -192,6 +322,20 @@ object Database {
                     """
                     CREATE INDEX IF NOT EXISTS idx_moves_game
                     ON moves(game_id)
+                    """.trimIndent()
+                )
+
+                statement.executeUpdate(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_ships_game_board
+                    ON ships(game_id, board_number)
+                    """.trimIndent()
+                )
+
+                statement.executeUpdate(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_board_cells_game_board
+                    ON board_cells(game_id, board_number)
                     """.trimIndent()
                 )
             }

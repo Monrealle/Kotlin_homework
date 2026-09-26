@@ -1,26 +1,29 @@
 package battleship
 
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Window
-import androidx.compose.ui.window.application
-import androidx.compose.ui.window.rememberWindowState
-import battleship.domain.service.*
-import battleship.infrastructure.*
+import battleship.domain.service.EloRatingServiceImpl
+import battleship.domain.service.ShipPlacementValidatorImpl
+import battleship.domain.service.StatisticsServiceImpl
+import battleship.domain.service.TurnValidatorImpl
+import battleship.infrastructure.SqliteEloRatingRepository
+import battleship.infrastructure.SqliteGameRepository
+import battleship.infrastructure.SqlitePlayerRepository
 import battleship.infrastructure.database.Database
-import battleship.presentation.gui.AdminApp
-import battleship.presentation.gui.GuiController
+import battleship.presentation.console.ConsoleApplication
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 
 /**
  * =============================================================================================
- * Точка входа приложения.
+ * Точка входа консольной версии приложения «Морской бой».
  *
- * Отвечает за сборку зависимостей приложения:
+ * Отвечает за сборку зависимостей консольного приложения:
  *
  * 1. Инициализирует локальную SQLite-базу данных.
  * 2. Создаёт SQLite-репозитории.
  * 3. Создаёт Domain-сервисы.
- * 4. Создаёт GUI-контроллер.
- * 5. Запускает Compose Desktop приложение.
+ * 4. Передаёт зависимости в консольный интерфейс.
+ * 5. Запускает главный цикл приложения.
  * =============================================================================================
  */
 fun main() {
@@ -39,13 +42,12 @@ fun main() {
      * ---------------------------------------------------------------------------------------------
      * SQLite-репозитории.
      *
-     * Все основные данные приложения теперь сохраняются
-     * в локальной SQLite-базе данных.
+     * Все данные консольной версии сохраняются в локальной базе данных.
      * ---------------------------------------------------------------------------------------------
      */
-    val playerRepo = SqlitePlayerRepository()
-    val gameRepo = SqliteGameRepository()
-    val eloRepo = SqliteEloRatingRepository()
+    val playerRepository = SqlitePlayerRepository()
+    val gameRepository = SqliteGameRepository()
+    val eloRatingRepository = SqliteEloRatingRepository()
 
     /**
      * ---------------------------------------------------------------------------------------------
@@ -56,42 +58,29 @@ fun main() {
     val turnValidator = TurnValidatorImpl()
     val eloService = EloRatingServiceImpl()
     val statisticsService = StatisticsServiceImpl(
-            gameRepository = gameRepo,
-            eloRatingRepository = eloRepo
-            )
+        gameRepository = gameRepository,
+        eloRatingRepository = eloRatingRepository
+    )
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * GUI controller.
+     * Запуск консольного приложения администратора.
      * ---------------------------------------------------------------------------------------------
      */
-    val ctrl =
-        GuiController(
-            playerRepo = playerRepo,
-            gameRepo = gameRepo,
-            eloRepo = eloRepo,
-            placementValidator = placementValidator,
-            turnValidator = turnValidator,
-            eloService = eloService,
-            statisticsService = statisticsService
-        )
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Запуск Compose Desktop окна.
-     * ---------------------------------------------------------------------------------------------
-     */
-    application {
-
-        Window(
-            onCloseRequest = ::exitApplication,
-            title = "Администратор Морского боя",
-            state = rememberWindowState(
-                width = 800.dp,
-                height = 600.dp
-            )
-        ) {
-            AdminApp(ctrl)
-        }
-    }
+    ConsoleApplication(
+        input = BufferedReader(
+            InputStreamReader(System.`in`, Charsets.UTF_8)
+        ),
+        output = OutputStreamWriter(
+            System.out,
+            Charsets.UTF_8
+        ),
+        playerRepository = playerRepository,
+        gameRepository = gameRepository,
+        eloRatingRepository = eloRatingRepository,
+        placementValidator = placementValidator,
+        turnValidator = turnValidator,
+        eloService = eloService,
+        statisticsService = statisticsService
+    ).run()
 }

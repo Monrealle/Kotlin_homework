@@ -137,7 +137,51 @@ class SqliteRepositoriesTest {
         assertNull(loaded.winner)
     }
 
-    /* Партии игрока находятся по обоим местам за столом порядок совпадает с порядком сохранения. */
+    /*
+     * Партия сохраняет не только ходы, но и обе расстановки, состояния клеток
+     * и изменения рейтинга после завершения.
+     */
+    @Test
+    fun `game repository should restore boards and elo changes`() {
+        savePlayers()
+        val repo = SqliteGameRepository()
+
+        val game = Game("game-full", alice, bob)
+        val aliceShip = Ship(
+            ShipType.DESTROYER,
+            listOf(Coordinate(0, 0), Coordinate(0, 1))
+        )
+        val bobShip = Ship(
+            ShipType.BOAT,
+            listOf(Coordinate(5, 5))
+        )
+
+        game.board1.placeShips(listOf(aliceShip))
+        game.board2.placeShips(listOf(bobShip))
+        game.board2.receiveShot(Coordinate(0, 0))
+        game.moves += Move(1, alice, Coordinate(0, 0), ShotResult.MISS)
+        game.status = GameStatus.FINISHED
+        game.winner = bob
+        game.eloChanges = mapOf(
+            alice to EloChange(alice, 1000, 975, -25),
+            bob to EloChange(bob, 1000, 1025, 25)
+        )
+
+        repo.save(game)
+
+        val loaded = SqliteGameRepository().findById("game-full")!!
+
+        assertEquals(game.status, loaded.status)
+        assertEquals(game.winner, loaded.winner)
+        assertEquals(game.moves, loaded.moves)
+        assertEquals(game.board1.ships, loaded.board1.ships)
+        assertEquals(game.board2.ships, loaded.board2.ships)
+        assertEquals(CellState.SHIP, loaded.board1.grid[Coordinate(0, 0)])
+        assertEquals(CellState.MISS, loaded.board2.grid[Coordinate(0, 0)])
+        assertEquals(game.eloChanges, loaded.eloChanges)
+    }
+
+    /* Партии игрока находятся по обоим местам за столом, порядок совпадает с порядком сохранения. */
     @Test
     fun `game repository should find games by player in creation order`() {
         val carol = Player("p-carol", "Carol")

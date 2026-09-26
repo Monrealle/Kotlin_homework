@@ -1,28 +1,30 @@
 package battleship.application
 
-import battleship.domain.model.*
-import battleship.domain.repository.*
-import battleship.domain.service.*
+import battleship.domain.model.Coordinate
+import battleship.domain.model.EloRating
+import battleship.domain.model.Game
+import battleship.domain.model.GameStatus
+import battleship.domain.model.Move
+import battleship.domain.model.Player
+import battleship.domain.model.Ship
+import battleship.domain.model.ShotResult
+import battleship.domain.model.ValidationResult
+import battleship.domain.repository.EloRatingRepository
+import battleship.domain.repository.GameRepository
+import battleship.domain.service.EloRatingService
+import battleship.domain.service.ShipPlacementValidator
+import battleship.domain.service.TurnValidator
 import java.util.UUID
 
 /**
  * =============================================================================================
- * Реализация игровой сессии - координатора одной партии «Морского боя».
+ * Реализация координатора игровой сессии (Application-слой).
  *
- * Жизненный цикл игры:
+ * Отвечает за последовательность действий в одной партии:
+ * создание партии -> расстановка кораблей -> выполнение ходов -> завершение.
  *
- * 1. [startGame] - создаётся объект [Game] со статусом `SETUP_P1`.
- * 2. [placeShips] для первого игрока → статус `SETUP_P2`.
- * 3. [placeShips] для второго игрока → статус `IN_PROGRESS`.
- * 4. [makeMove] выполняется многократно до завершения партии.
- * 5. При победе устанавливается `FINISHED`, определяется победитель
- *    и рассчитываются изменения рейтинга Эло.
- *
- * @param placementValidator валидатор расстановки кораблей
- * @param turnValidator валидатор очередности и допустимости выстрела
- * @param eloService сервис расчёта рейтинга Эло
- * @param gameRepository репозиторий игровых партий
- * @param eloRatingRepository репозиторий текущих рейтингов игроков
+ * Администратор регистрирует расстановку обоих игроков
+ * и вручную заносит ходы. GUI дополнительно предлагает автоматическую расстановку.
  * =============================================================================================
  */
 class GameSessionImpl(
@@ -33,137 +35,143 @@ class GameSessionImpl(
     private val eloRatingRepository: EloRatingRepository
 ) : GameSession {
 
-    private lateinit var game: Game
+    private var game: Game? = null
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Создаёт новую партию со статусом `SETUP_P1` и сохраняет её в репозитории.
+     * Создаёт и сохраняет новую партию.
+     *
+     * Игроки должны отличаться друг от друга.
      * ---------------------------------------------------------------------------------------------
      */
     override fun startGame(p1: Player, p2: Player) {
-        game = Game(id = UUID.randomUUID().toString(), player1 = p1, player2 = p2)
-        gameRepository.save(game)
+        require(p1 != p2) { "Нельзя создать партию игрока с самим собой" }
+        val newGame = Game(UUID.randomUUID().toString(), p1, p2)
+        game = newGame
+        gameRepository.save(newGame)
     }
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Принимает список кораблей от игрока, проверяет через [placementValidator]
-     * и, если валидация пройдена, размещает их на доске игрока.
-     * Переводит игру в следующий статус (`SETUP_P2` или `IN_PROGRESS`).
+     * Проверяет и сохраняет расстановку кораблей одного из игроков.
      *
-     * @return [ValidationResult.success] при успехе, иначе - результат с ошибками
+     * Порядок расстановки фиксирован: сначала первый игрок,
+     * затем второй. После успешной второй расстановки партия начинается.
      * ---------------------------------------------------------------------------------------------
      */
     override fun placeShips(player: Player, ships: List<Ship>): ValidationResult {
-        val validation = placementValidator.validate(ships)
-        if (!validation.isValid) return validation
+        val currentGame = requireGame()
 
-        when (player) {
-            game.player1 -> {
-                if (game.status != GameStatus.SETUP_P1)
-                    return ValidationResult.failure(
-                        "Невозможно расставить корабли для ${player.name}: статус игры ${game.status}"
-                    )
-                game.board1.placeShips(ships)
-                game.status = GameStatus.SETUP_P2
-            }
-            game.player2 -> {
-                if (game.status != GameStatus.SETUP_P2)
-                    return ValidationResult.failure(
-                        "Невозможно расставить корабли для ${player.name}: статус игры ${game.status}"
-                    )
-                game.board2.placeShips(ships)
-                game.status = GameStatus.IN_PROGRESS
-            }
-            else -> return ValidationResult.failure(
-                "Невозможно расставить корабли для ${player.name}: статус игры ${game.status}"
+        val placementStatus = when (player) {
+            currentGame.player1 -> GameStatus.SETUP_P1
+            currentGame.player2 -> GameStatus.SETUP_P2
+            else -> return ValidationResult.failure("Игрок не участвует в этой партии")
+        }
+
+        if (currentGame.status != placementStatus) {
+            return ValidationResult.failure(
+                "Сейчас нельзя расставить корабли: статус игры ${currentGame.status}"
             )
         }
 
-        gameRepository.save(game)
+        val validation = placementValidator.validate(ships)
+        if (!validation.isValid) return validation
+
+        currentGame.boardOf(player).placeShips(ships)
+        currentGame.status = when (player) {
+            currentGame.player1 -> GameStatus.SETUP_P2
+            currentGame.player2 -> GameStatus.IN_PROGRESS
+            else -> error("Недопустимый игрок")
+        }
+        gameRepository.save(currentGame)
         return ValidationResult.success()
     }
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Выполняет ход игрока.
+     * Выполняет один ход и сохраняет его в истории партии.
      *
-     * Алгоритм:
-     * - Проверяет право хода через [turnValidator].
-     * - Выполняет выстрел (см. [executeShot]).
-     *
-     * @throws IllegalArgumentException если ход нелегален (очерёдность, повтор, статус)
-     * @return объект [Move], описывающий ход, совершённый игроком [player]
+     * Результат `MISS` передаёт ход сопернику.
+     * После `HIT` и `SUNK` ход остаётся у текущего игрока.
+     * При `WIN` партия завершается и пересчитывается рейтинг игроков.
      * ---------------------------------------------------------------------------------------------
      */
     override fun makeMove(player: Player, coord: Coordinate): Move {
-        val validation = turnValidator.canFire(game, player, coord)
+        val currentGame = requireGame()
+        val validation = turnValidator.canFire(currentGame, player, coord)
         require(validation.isValid) { validation.errors.joinToString("; ") }
 
-        return executeShot(player, coord)
-    }
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Возвращает текущий объект [Game].
-     *
-     * Это живая ссылка - все последующие изменения в сессии будут видны через неё.
-     * ---------------------------------------------------------------------------------------------
-     */
-    override fun getGame(): Game = game
-
-    /**
-     * ---------------------------------------------------------------------------------------------
-     * Выполняет одиночный выстрел от имени [player] по координате [coord].
-     *
-     * - Наносит удар по доске оппонента.
-     * - Создаёт запись [Move] и добавляет её в лог игры.
-     * - Если выстрел приводит к победе - вызывает [finishGame].
-     * - При промахе передаёт ход оппоненту.
-     * ---------------------------------------------------------------------------------------------
-     */
-    private fun executeShot(player: Player, coord: Coordinate): Move {
-        val opponentBoard = game.opponentBoardOf(player)
-        val result = opponentBoard.receiveShot(coord)
-
+        val result = currentGame.opponentBoardOf(player).receiveShot(coord)
         val move = Move(
-            turnNumber = game.moves.size + 1, /* Номер хода                              */
-            player = player,                  /* Игрок, сделавший выстрел                */
-            coordinate = coord,               /* Координата, куда был произведён выстрел */
-            result = result                   /* Исход выстрела (MISS, HIT, SUNK, WIN)   */
+            turnNumber = currentGame.moves.size + 1,
+            player = player,
+            coordinate = coord,
+            result = result
         )
-        game.moves.add(move)
+        currentGame.moves += move
 
         when (result) {
-            ShotResult.WIN -> finishGame(winner = player)
-            ShotResult.MISS -> game.currentTurn = opponent(player)
-            else -> { /* HIT / SUNK — ход остаётся у того же игрока */ }
+            ShotResult.WIN -> finishGame(currentGame, player)
+            ShotResult.MISS -> currentGame.currentTurn = opponentOf(currentGame, player)
+            ShotResult.HIT, ShotResult.SUNK -> Unit
         }
 
-        gameRepository.save(game)
+        gameRepository.save(currentGame)
         return move
     }
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Завершает игру победой [winner].
-     * Рассчитывает и сохраняет изменения рейтинга Эло для обоих игроков.
+     * Возвращает текущую партию.
      * ---------------------------------------------------------------------------------------------
      */
-    private fun finishGame(winner: Player) {
+    override fun getGame(): Game = requireGame()
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Завершает партию и пересчитывает рейтинг игроков.
+     *
+     * Сохраняет победителя, статус `FINISHED`, изменения рейтингов
+     * и новые значения рейтингов в репозитории.
+     * ---------------------------------------------------------------------------------------------
+     */
+    private fun finishGame(game: Game, winner: Player) {
         game.winner = winner
         game.status = GameStatus.FINISHED
 
-        val loser = opponent(winner)
+        val loser = opponentOf(game, winner)
         val winnerRating = eloRatingRepository.findByPlayer(winner).rating
         val loserRating = eloRatingRepository.findByPlayer(loser).rating
-        val changes = eloService.calculateRatings(winner, winnerRating, loser, loserRating)
+        val changes = eloService.calculateRatings(
+            winner,
+            winnerRating,
+            loser,
+            loserRating
+        )
 
         game.eloChanges = changes
-        changes.values.forEach { ch -> eloRatingRepository.save(EloRating(ch.player, ch.newRating))
+        changes.values.forEach { change ->
+            eloRatingRepository.save(EloRating(change.player, change.newRating))
         }
     }
 
-    private fun opponent(player: Player): Player =
-        if (player == game.player1) game.player2 else game.player1
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Находит соперника указанного игрока в текущей партии.
+     * ---------------------------------------------------------------------------------------------
+     */
+    private fun opponentOf(game: Game, player: Player): Player =
+        when (player) {
+            game.player1 -> game.player2
+            game.player2 -> game.player1
+            else -> error("Игрок не участвует в этой партии")
+        }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Возвращает текущую партию или сообщает, что партия ещё не создана.
+     * ---------------------------------------------------------------------------------------------
+     */
+    private fun requireGame(): Game =
+        game ?: error("Партия ещё не создана")
 }

@@ -355,7 +355,7 @@ class MainTest {
 
         assertTrue(
             result.errors.any {
-                it.contains("пересекается")
+                it.contains("перекрываются")
             }
         )
     }
@@ -395,7 +395,7 @@ class MainTest {
 
         assertTrue(
             result.errors.any {
-                it.contains("соприкасается")
+                it.contains("стоят вплотную")
             }
         )
     }

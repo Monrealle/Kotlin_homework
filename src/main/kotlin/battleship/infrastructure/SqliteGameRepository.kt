@@ -1,10 +1,15 @@
 package battleship.infrastructure
 
+import battleship.domain.model.Board
+import battleship.domain.model.CellState
 import battleship.domain.model.Coordinate
+import battleship.domain.model.EloChange
 import battleship.domain.model.Game
 import battleship.domain.model.GameStatus
 import battleship.domain.model.Move
 import battleship.domain.model.Player
+import battleship.domain.model.Ship
+import battleship.domain.model.ShipType
 import battleship.domain.model.ShotResult
 import battleship.domain.repository.GameRepository
 import battleship.infrastructure.database.Database
@@ -18,31 +23,29 @@ import battleship.infrastructure.database.Database
  * - участников партии;
  * - статус партии;
  * - победителя;
- * - полную историю ходов.
+ * - полную историю ходов;
+ * - расстановки кораблей обеих сторон;
+ * - состояние клеток обеих досок;
+ * - изменения рейтинга Эло.
  *
- * Игровые партии хранятся в таблице [games],
- * а отдельные ходы - в таблице [moves].
- *
- * Доски и расстановка кораблей в базу не сохраняются,
- * так как для истории партий и статистики достаточно
- * информации о самой партии и её ходах.
+ * Игровая информация хранится в связанных таблицах [games], [moves], [game_boards],
+ * [ships], [ship_segments], [board_cells] и [elo_changes].
  * =============================================================================================
  */
 class SqliteGameRepository : GameRepository {
 
     init {
-
         /* Гарантирует наличие базы данных и таблиц перед работой репозитория. */
-
         Database.init()
     }
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Сохраняет партию и её историю ходов.
+     * Сохраняет партию и все связанные с ней данные.
      *
-     * При повторном сохранении существующей партии её состояние обновляется.
-     * История ходов для этой партии пересоздаётся из текущего [Game.moves].
+     * При повторном сохранении существующей партии её состояние обновляется,
+     * а связанные ходы, доски и изменения рейтинга пересоздаются из текущего [Game].
+     * Всё сохранение выполняется одной транзакцией.
      *
      * @param game партия для сохранения
      * ---------------------------------------------------------------------------------------------
@@ -51,11 +54,15 @@ class SqliteGameRepository : GameRepository {
 
         Database.connect().use { connection ->
 
-            /* Одна транзакция используется для сохранения партии и всех связанных с ней ходов. */
             connection.autoCommit = false
 
             try {
 
+                /**
+                 * ---------------------------------------------------------------------------------------------
+                 * Сохраняем основную информацию о партии.
+                 * ---------------------------------------------------------------------------------------------
+                 */
                 connection.prepareStatement(
                     """
                     INSERT INTO games (
@@ -88,16 +95,33 @@ class SqliteGameRepository : GameRepository {
                     statement.executeUpdate()
                 }
 
-                /* Перед повторной записью партии удаляем старую историю ходов. */
+                /* Удаляем дочерние данные перед повторной записью текущего состояния. */
                 connection.prepareStatement(
-                    "DELETE FROM moves WHERE game_id = ?"
+                    "DELETE FROM elo_changes WHERE game_id = ?"
                 ).use { statement ->
-
                     statement.setString(1, game.id)
                     statement.executeUpdate()
                 }
 
-                /* Сохраняем текущую историю ходов партии. */
+                connection.prepareStatement(
+                    "DELETE FROM game_boards WHERE game_id = ?"
+                ).use { statement ->
+                    statement.setString(1, game.id)
+                    statement.executeUpdate()
+                }
+
+                connection.prepareStatement(
+                    "DELETE FROM moves WHERE game_id = ?"
+                ).use { statement ->
+                    statement.setString(1, game.id)
+                    statement.executeUpdate()
+                }
+
+                /**
+                 * ---------------------------------------------------------------------------------------------
+                 * Сохраняем историю ходов партии.
+                 * ---------------------------------------------------------------------------------------------
+                 */
                 connection.prepareStatement(
                     """
                     INSERT INTO moves (
@@ -113,25 +137,69 @@ class SqliteGameRepository : GameRepository {
                 ).use { statement ->
 
                     game.moves.forEach { move ->
-
                         statement.setString(1, game.id)
                         statement.setInt(2, move.turnNumber)
                         statement.setString(3, move.player.id)
                         statement.setInt(4, move.coordinate.row)
                         statement.setInt(5, move.coordinate.col)
                         statement.setString(6, move.result.name)
-
                         statement.addBatch()
                     }
 
                     statement.executeBatch()
                 }
 
+                /**
+                 * ---------------------------------------------------------------------------------------------
+                 * Сохраняем обе игровые доски.
+                 * ---------------------------------------------------------------------------------------------
+                 */
+                saveBoard(
+                    connection,
+                    game.id,
+                    1,
+                    game.board1
+                )
+
+                saveBoard(
+                    connection,
+                    game.id,
+                    2,
+                    game.board2
+                )
+
+                /**
+                 * ---------------------------------------------------------------------------------------------
+                 * Сохраняем изменения рейтинга, если партия завершена.
+                 * ---------------------------------------------------------------------------------------------
+                 */
+                game.eloChanges?.values?.forEach { change ->
+                    connection.prepareStatement(
+                        """
+                        INSERT INTO elo_changes (
+                            game_id,
+                            player_id,
+                            old_rating,
+                            new_rating,
+                            delta
+                        )
+                        VALUES (?, ?, ?, ?, ?)
+                        """.trimIndent()
+                    ).use { statement ->
+                        statement.setString(1, game.id)
+                        statement.setString(2, change.player.id)
+                        statement.setInt(3, change.oldRating)
+                        statement.setInt(4, change.newRating)
+                        statement.setInt(5, change.delta)
+                        statement.executeUpdate()
+                    }
+                }
+
                 connection.commit()
 
             } catch (exception: Exception) {
 
-                /* При ошибке откатываем изменения партии и её ходов. */
+                /* При ошибке откатываем изменения партии и связанных данных. */
                 connection.rollback()
 
                 throw exception
@@ -141,9 +209,121 @@ class SqliteGameRepository : GameRepository {
 
     /**
      * ---------------------------------------------------------------------------------------------
+     * Сохраняет одну игровую доску и её состояние.
+     * ---------------------------------------------------------------------------------------------
+     */
+    private fun saveBoard(
+        connection: java.sql.Connection,
+        gameId: String,
+        boardNumber: Int,
+        board: Board
+    ) {
+
+        connection.prepareStatement(
+            """
+            INSERT INTO game_boards (
+                game_id,
+                board_number,
+                owner_id
+            )
+            VALUES (?, ?, ?)
+            """.trimIndent()
+        ).use { statement ->
+            statement.setString(1, gameId)
+            statement.setInt(2, boardNumber)
+            statement.setString(3, board.owner.id)
+            statement.executeUpdate()
+        }
+
+        /**
+         * ---------------------------------------------------------------------------------------------
+         * Сохраняем корабли и их сегменты.
+         * ---------------------------------------------------------------------------------------------
+         */
+        board.ships.forEachIndexed { index, ship ->
+
+            val shipId = connection.prepareStatement(
+                """
+                INSERT INTO ships (
+                    game_id,
+                    board_number,
+                    ship_number,
+                    type
+                )
+                VALUES (?, ?, ?, ?)
+                """.trimIndent(),
+                java.sql.Statement.RETURN_GENERATED_KEYS
+            ).use { statement ->
+
+                statement.setString(1, gameId)
+                statement.setInt(2, boardNumber)
+                statement.setInt(3, index + 1)
+                statement.setString(4, ship.type.name)
+                statement.executeUpdate()
+
+                statement.generatedKeys.use { keys ->
+                    if (!keys.next()) {
+                        error("Не удалось получить идентификатор корабля")
+                    }
+                    keys.getLong(1)
+                }
+            }
+
+            connection.prepareStatement(
+                """
+                INSERT INTO ship_segments (
+                    ship_id,
+                    row,
+                    col
+                )
+                VALUES (?, ?, ?)
+                """.trimIndent()
+            ).use { statement ->
+                ship.segments.forEach { coordinate ->
+                    statement.setLong(1, shipId)
+                    statement.setInt(2, coordinate.row)
+                    statement.setInt(3, coordinate.col)
+                    statement.addBatch()
+                }
+                statement.executeBatch()
+            }
+        }
+
+        /**
+         * ---------------------------------------------------------------------------------------------
+         * Сохраняем только занятые и атакованные клетки.
+         * EMPTY-клетки восстанавливаются конструктором [Board].
+         * ---------------------------------------------------------------------------------------------
+         */
+        connection.prepareStatement(
+            """
+            INSERT INTO board_cells (
+                game_id,
+                board_number,
+                row,
+                col,
+                state
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """.trimIndent()
+        ).use { statement ->
+            board.grid.forEach { (coordinate, state) ->
+                if (state != CellState.EMPTY) {
+                    statement.setString(1, gameId)
+                    statement.setInt(2, boardNumber)
+                    statement.setInt(3, coordinate.row)
+                    statement.setInt(4, coordinate.col)
+                    statement.setString(5, state.name)
+                    statement.addBatch()
+                }
+            }
+            statement.executeBatch()
+        }
+    }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
      * Возвращает все сохранённые партии.
-     *
-     * @return список партий
      * ---------------------------------------------------------------------------------------------
      */
     override fun findAll(): List<Game> {
@@ -166,17 +346,15 @@ class SqliteGameRepository : GameRepository {
                 statement.executeQuery().use { resultSet ->
 
                     return buildList {
-
                         while (resultSet.next()) {
-
                             add(
                                 loadGame(
-                                    connection,
-                                    resultSet.getString("id"),
-                                    resultSet.getString("player1_id"),
-                                    resultSet.getString("player2_id"),
-                                    resultSet.getString("winner_id"),
-                                    resultSet.getString("status")
+                                    connection = connection,
+                                    id = resultSet.getString("id"),
+                                    player1Id = resultSet.getString("player1_id"),
+                                    player2Id = resultSet.getString("player2_id"),
+                                    winnerId = resultSet.getString("winner_id"),
+                                    status = resultSet.getString("status")
                                 )
                             )
                         }
@@ -189,9 +367,6 @@ class SqliteGameRepository : GameRepository {
     /**
      * ---------------------------------------------------------------------------------------------
      * Ищет партию по идентификатору.
-     *
-     * @param id идентификатор партии
-     * @return найденная партия или null
      * ---------------------------------------------------------------------------------------------
      */
     override fun findById(id: String): Game? {
@@ -214,18 +389,17 @@ class SqliteGameRepository : GameRepository {
                 statement.setString(1, id)
 
                 statement.executeQuery().use { resultSet ->
-
                     if (!resultSet.next()) {
                         return null
                     }
 
                     return loadGame(
-                        connection,
-                        resultSet.getString("id"),
-                        resultSet.getString("player1_id"),
-                        resultSet.getString("player2_id"),
-                        resultSet.getString("winner_id"),
-                        resultSet.getString("status")
+                        connection = connection,
+                        id = resultSet.getString("id"),
+                        player1Id = resultSet.getString("player1_id"),
+                        player2Id = resultSet.getString("player2_id"),
+                        winnerId = resultSet.getString("winner_id"),
+                        status = resultSet.getString("status")
                     )
                 }
             }
@@ -235,9 +409,6 @@ class SqliteGameRepository : GameRepository {
     /**
      * ---------------------------------------------------------------------------------------------
      * Возвращает партии, в которых участвовал указанный игрок.
-     *
-     * @param player игрок
-     * @return список его партий
      * ---------------------------------------------------------------------------------------------
      */
     override fun findByPlayer(player: Player): List<Game> {
@@ -263,19 +434,16 @@ class SqliteGameRepository : GameRepository {
                 statement.setString(2, player.id)
 
                 statement.executeQuery().use { resultSet ->
-
                     return buildList {
-
                         while (resultSet.next()) {
-
                             add(
                                 loadGame(
-                                    connection,
-                                    resultSet.getString("id"),
-                                    resultSet.getString("player1_id"),
-                                    resultSet.getString("player2_id"),
-                                    resultSet.getString("winner_id"),
-                                    resultSet.getString("status")
+                                    connection = connection,
+                                    id = resultSet.getString("id"),
+                                    player1Id = resultSet.getString("player1_id"),
+                                    player2Id = resultSet.getString("player2_id"),
+                                    winnerId = resultSet.getString("winner_id"),
+                                    status = resultSet.getString("status")
                                 )
                             )
                         }
@@ -287,16 +455,7 @@ class SqliteGameRepository : GameRepository {
 
     /**
      * ---------------------------------------------------------------------------------------------
-     * Восстанавливает объект [Game] из строки таблицы games
-     * и загружает связанные с ним ходы.
-     *
-     * @param connection соединение с базой данных
-     * @param id идентификатор партии
-     * @param player1Id идентификатор первого игрока
-     * @param player2Id идентификатор второго игрока
-     * @param winnerId идентификатор победителя
-     * @param status статус партии
-     * @return восстановленная партия
+     * Восстанавливает объект [Game] из таблицы games и связанных таблиц.
      * ---------------------------------------------------------------------------------------------
      */
     private fun loadGame(
@@ -308,26 +467,49 @@ class SqliteGameRepository : GameRepository {
         status: String
     ): Game {
 
-        val player1 = findPlayer(connection, player1Id) ?: error("Игрок $player1Id не найден")
-        val player2 = findPlayer(connection, player2Id) ?: error("Игрок $player2Id не найден")
+        val player1 =
+            findPlayer(connection, player1Id)
+                ?: error("Игрок $player1Id не найден")
 
-        val game = Game(
+        val player2 =
+            findPlayer(connection, player2Id)
+                ?: error("Игрок $player2Id не найден")
+
+        val game =
+            Game(
                 id = id,
                 player1 = player1,
                 player2 = player2
             )
 
         /* Восстанавливаем статус партии. */
-        game.status =
-            GameStatus.valueOf(status)
+        game.status = GameStatus.valueOf(status)
 
         /* Восстанавливаем победителя. */
-        game.winner =
-            winnerId?.let {
-                findPlayer(connection, it)
-            }
+        game.winner = winnerId?.let {
+            findPlayer(connection, it)
+        }
 
-        /* Восстанавливаем историю ходов. */
+        /* Восстанавливаем обе доски вместе с кораблями и состоянием клеток. */
+        loadBoard(
+            connection,
+            game,
+            1,
+            game.board1
+        )
+
+        loadBoard(
+            connection,
+            game,
+            2,
+            game.board2
+        )
+
+        /**
+         * ---------------------------------------------------------------------------------------------
+         * Восстанавливаем историю ходов.
+         * ---------------------------------------------------------------------------------------------
+         */
         connection.prepareStatement(
             """
             SELECT
@@ -378,9 +560,8 @@ class SqliteGameRepository : GameRepository {
          * ---------------------------------------------------------------------------------------------
          * Восстанавливаем игрока, которому принадлежит следующий ход.
          *
-         * Правило совпадает с игровой логикой: после промаха ход переходит
-         * к сопернику, после попадания / потопления / победы остаётся у того же игрока.
-         * Для партии без ходов остаётся первый игрок.
+         * После промаха ход переходит к сопернику, после попадания / потопления
+         * остаётся у того же игрока. Для партии без ходов остаётся первый игрок.
          * ---------------------------------------------------------------------------------------------
          */
         if (game.moves.isNotEmpty()) {
@@ -396,16 +577,177 @@ class SqliteGameRepository : GameRepository {
                 }
         }
 
+        /* Восстанавливаем изменения рейтинга по завершённой партии. */
+        loadEloChanges(
+            connection,
+            game
+        )
+
         return game
     }
 
     /**
      * ---------------------------------------------------------------------------------------------
+     * Восстанавливает игровую доску вместе с кораблями и состояниями клеток.
+     * ---------------------------------------------------------------------------------------------
+     */
+    private fun loadBoard(
+        connection: java.sql.Connection,
+        game: Game,
+        boardNumber: Int,
+        targetBoard: Board
+    ) {
+
+        val ships = mutableListOf<Ship>()
+
+        connection.prepareStatement(
+            """
+            SELECT
+                id,
+                ship_number,
+                type
+            FROM ships
+            WHERE game_id = ?
+              AND board_number = ?
+            ORDER BY ship_number
+            """.trimIndent()
+        ).use { statement ->
+
+            statement.setString(1, game.id)
+            statement.setInt(2, boardNumber)
+
+            statement.executeQuery().use { resultSet ->
+
+                while (resultSet.next()) {
+
+                    val shipId = resultSet.getLong("id")
+                    val type = ShipType.valueOf(
+                        resultSet.getString("type")
+                    )
+                    val segments = mutableListOf<Coordinate>()
+
+                    connection.prepareStatement(
+                        """
+                        SELECT row, col
+                        FROM ship_segments
+                        WHERE ship_id = ?
+                        ORDER BY row, col
+                        """.trimIndent()
+                    ).use { segmentStatement ->
+
+                        segmentStatement.setLong(1, shipId)
+
+                        segmentStatement.executeQuery().use { segmentsResult ->
+                            while (segmentsResult.next()) {
+                                segments += Coordinate(
+                                    row = segmentsResult.getInt("row"),
+                                    col = segmentsResult.getInt("col")
+                                )
+                            }
+                        }
+                    }
+
+                    ships += Ship(
+                        type = type,
+                        segments = segments
+                    )
+                }
+            }
+        }
+
+        if (ships.isNotEmpty()) {
+            targetBoard.placeShips(ships)
+        }
+
+        /**
+         * ---------------------------------------------------------------------------------------------
+         * Восстанавливаем состояния занятых и атакованных клеток.
+         * ---------------------------------------------------------------------------------------------
+         */
+        connection.prepareStatement(
+            """
+            SELECT row, col, state
+            FROM board_cells
+            WHERE game_id = ?
+              AND board_number = ?
+            """.trimIndent()
+        ).use { statement ->
+
+            statement.setString(1, game.id)
+            statement.setInt(2, boardNumber)
+
+            statement.executeQuery().use { resultSet ->
+                while (resultSet.next()) {
+                    val coordinate = Coordinate(
+                        row = resultSet.getInt("row"),
+                        col = resultSet.getInt("col")
+                    )
+
+                    targetBoard.grid[coordinate] =
+                        CellState.valueOf(
+                            resultSet.getString("state")
+                        )
+                }
+            }
+        }
+    }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
+     * Восстанавливает изменения рейтингов партии.
+     * ---------------------------------------------------------------------------------------------
+     */
+    private fun loadEloChanges(
+        connection: java.sql.Connection,
+        game: Game
+    ) {
+
+        val changes = linkedMapOf<Player, EloChange>()
+
+        connection.prepareStatement(
+            """
+            SELECT
+                player_id,
+                old_rating,
+                new_rating,
+                delta
+            FROM elo_changes
+            WHERE game_id = ?
+            """.trimIndent()
+        ).use { statement ->
+
+            statement.setString(1, game.id)
+
+            statement.executeQuery().use { resultSet ->
+
+                while (resultSet.next()) {
+                    val player =
+                        findPlayer(
+                            connection,
+                            resultSet.getString("player_id")
+                        )
+                            ?: error(
+                                "Игрок ${resultSet.getString("player_id")} не найден"
+                            )
+
+                    changes[player] =
+                        EloChange(
+                            player = player,
+                            oldRating = resultSet.getInt("old_rating"),
+                            newRating = resultSet.getInt("new_rating"),
+                            delta = resultSet.getInt("delta")
+                        )
+                }
+            }
+        }
+
+        game.eloChanges =
+            changes.takeIf { it.isNotEmpty() }
+    }
+
+    /**
+     * ---------------------------------------------------------------------------------------------
      * Загружает игрока по идентификатору.
-     *
-     * @param connection соединение с базой данных
-     * @param id идентификатор игрока
-     * @return игрок или null
      * ---------------------------------------------------------------------------------------------
      */
     private fun findPlayer(

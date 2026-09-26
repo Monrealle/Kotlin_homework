@@ -1,5 +1,7 @@
 package battleship.domain.model
 
+import java.util.Locale
+
 /**
  * =============================================================================================
  * Набор Value Objects (объектов-значений) Domain-слоя.
@@ -15,7 +17,7 @@ package battleship.domain.model
  * Один ход в партии.
  *
  * Фиксирует факт выстрела: кто, куда, каким по счёту ходом и с каким результатом.
- * Добавляется в [Game.moves] методом [GameSessionImpl.executeShot].
+ * Добавляется в [Game.moves] во время выполнения хода через [GameSession].
  *
  * @param turnNumber порядковый номер хода в партии (начиная с 1)
  * @param player игрок, совершивший выстрел
@@ -120,5 +122,5 @@ data class PlayerStats(
      * ---------------------------------------------------------------------------------------------
      */
     fun display(): String =
-        "Игр: $gamesPlayed | Побед: $wins | Винрейт: ${"%.1f".format(winRate * 100)}% | Рейтинг: $currentElo"
+        "Игр: $gamesPlayed | Побед: $wins | Винрейт: ${String.format(Locale.ROOT, "%.1f", winRate * 100)}% | Рейтинг: $currentElo"
 }
